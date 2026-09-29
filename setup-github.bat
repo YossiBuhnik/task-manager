@@ -4,7 +4,7 @@ echo  Task-Manager - GitHub Setup Script
 echo ============================================
 echo.
 
-cd /d "C:\Projects\tsk manager"
+cd /d "C:\Projects\ToDo App"
 
 echo [1/5] Initializing git...
 git init

@@ -694,7 +694,93 @@ input, textarea, select {
 .data-tools .spacer { flex: 1; }
 
 /* ─── Small responsive ─── */
+/* ─── Dashboard TODO list ─── */
+.todo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.todo-col {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  min-width: 0;
+}
+.todo-col-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.todo-col-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.todo-empty { color: var(--ink-3); font-size: 13px; padding: 14px 0 4px; }
+.todo-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.todo-item:last-of-type { border-bottom: 0; }
+.todo-item .task-check { margin-top: 2px; flex: 0 0 auto; }
+.todo-body { min-width: 0; flex: 1; }
+.todo-title {
+  font-weight: 500;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.todo-title:hover { color: var(--accent); }
+.todo-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+.todo-due { color: var(--ink-3); font-weight: 500; }
+.todo-due.is-soon { color: var(--prio-mid); }
+.todo-due.is-overdue { color: var(--prio-high); font-weight: 600; }
+.todo-proj {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--area-ink, var(--ink-2));
+  background: var(--area-soft, var(--bg-2));
+  padding: 2px 8px;
+  border-radius: 999px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.todo-proj::before {
+  content: "";
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--area-color, var(--accent));
+  flex: 0 0 6px;
+}
+.todo-more { margin-top: 8px; width: 100%; justify-content: center; }
+.todo-undated {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line-2);
+}
+.todo-undated-title { font-size: 12px; color: var(--ink-3); font-weight: 600; margin-bottom: 4px; }
+.todo-undated-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
 @media (max-width: 880px) {
+  .todo-grid { grid-template-columns: 1fr; }
   .kpis { grid-template-columns: repeat(2, 1fr); }
   .task-row {
     grid-template-columns: 24px 1fr 110px 90px 40px;

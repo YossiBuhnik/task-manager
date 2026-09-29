@@ -68,21 +68,19 @@ function Modal({ title, onClose, children, footer }) {
   );
 }
 
-// ─── City modal (add / edit) ────────────────────────────────
-function CityModal({ city, onSave, onClose, currentUserEmail, showVisibility }) {
-  const [name, setName] = useState(city?.name || "");
-  const [visibility, setVisibility] = useState(city?.visibility || "shared");
+// ─── Area (תחום) modal (add / edit) ─────────────────────────
+function AreaModal({ area, onSave, onClose, currentUserEmail, showVisibility }) {
+  const [name, setName] = useState(area?.name || "");
+  const [visibility, setVisibility] = useState(area?.visibility || "shared");
   const submit = () => {
     const n = name.trim();
     if (!n) return;
-    const owner = visibility === "private"
-      ? (city?.owner || currentUserEmail || null)
-      : null;
+    const owner = visibility === "private" ? (area?.owner || currentUserEmail || null) : null;
     onSave({ name: n, visibility, owner });
   };
   return (
     <Modal
-      title={city ? "עריכת תחום" : "הוספת תחום"}
+      title={area ? "עריכת תחום" : "הוספת תחום"}
       onClose={onClose}
       footer={
         <>
@@ -93,49 +91,120 @@ function CityModal({ city, onSave, onClose, currentUserEmail, showVisibility }) 
     >
       <div className="field">
         <label>שם התחום</label>
-        <input
-          autoFocus
-          value={name}
-          onChange={(e) => setName(e.target.value)}
+        <input autoFocus value={name} onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
-          placeholder="לדוגמה: משימות משרד, רעננה, חיפה"
-        />
+          placeholder="לדוגמה: משרד, ניהול פרויקטים, הבטחת איכות" />
       </div>
       {showVisibility && (
-        <div className="field">
-          <label>נראות</label>
-          <div className="vis-radio">
-            <button type="button"
-              className={"vis-opt " + (visibility === "shared" ? "is-active" : "")}
-              onClick={() => setVisibility("shared")}>
-              {Icon.users}<span>משותף עם הצוות</span>
-            </button>
-            <button type="button"
-              className={"vis-opt " + (visibility === "private" ? "is-active" : "")}
-              onClick={() => setVisibility("private")}>
-              {Icon.lock}<span>פרטי (רק אני)</span>
-            </button>
-          </div>
-          <div style={{ fontSize: 11.5, color: "var(--ink-3)", marginTop: 6, lineHeight: 1.5 }}>
-            {visibility === "shared"
-              ? "כל חברי הצוות יראו ויוכלו לערוך את התחום הזה."
-              : "התחום יוצג רק לך. ניתן להפוך למשותף בכל עת."}
-          </div>
-        </div>
+        <VisibilityPicker value={visibility} onChange={setVisibility} noun="התחום" />
       )}
     </Modal>
   );
 }
 
-// ─── Project modal ──────────────────────────────────────────
-function ProjectModal({ project, onSave, onClose, allowStandardTasks }) {
-  const [name, setName] = useState(project?.name || "");
-  const [summary, setSummary] = useState(project?.summary || "");
-  const [withStd, setWithStd] = useState(allowStandardTasks);
+// ─── Client (מזמין עבודה) modal (add / edit) ───────────────
+// Stored as a "city" for historic reasons. showVisibility is false when the
+// chosen area is private (the client inherits it).
+function CityModal({ city, areas, defaultAreaId, onSave, onClose, currentUserEmail, userEmail }) {
+  const [name, setName] = useState(city?.name || "");
+  // Editing an unassigned client keeps it unassigned until an area is picked.
+  const [areaId, setAreaId] = useState(() => {
+    if (city) return areas.some(a => a.id === city.areaId) ? city.areaId : "";
+    return defaultAreaId || areas[0]?.id || "";
+  });
+  const [visibility, setVisibility] = useState(city?.visibility || "shared");
+  const area = areas.find(a => a.id === areaId);
+  const showVisibility = !!userEmail && area?.visibility !== "private";
   const submit = () => {
     const n = name.trim();
     if (!n) return;
-    onSave({ name: n, summary: summary.trim(), withStandardTasks: withStd });
+    const fields = { name: n, areaId: areaId || null };
+    if (showVisibility) {
+      fields.visibility = visibility;
+      fields.owner = visibility === "private" ? (city?.owner || currentUserEmail || null) : null;
+    }
+    onSave(fields);
+  };
+  return (
+    <Modal
+      title={city ? "עריכת מזמין עבודה" : "הוספת מזמין עבודה"}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-primary" onClick={submit}>שמירה</button>
+          <button className="btn" onClick={onClose}>ביטול</button>
+        </>
+      }
+    >
+      <div className="field">
+        <label>שם מזמין העבודה</label>
+        <input
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="לדוגמה: עיריית תל אביב, חברה כלכלית אשדוד"
+        />
+      </div>
+      <div className="field">
+        <label>תחום</label>
+        <select value={areaId} onChange={(e) => setAreaId(e.target.value)}>
+          {!areaId && <option value="">— בחר תחום —</option>}
+          {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+      </div>
+      {showVisibility && (
+        <VisibilityPicker value={visibility} onChange={setVisibility} noun="מזמין העבודה" />
+      )}
+    </Modal>
+  );
+}
+
+// ─── Visibility picker (shared / private) ───────────────────
+function VisibilityPicker({ value, onChange, noun }) {
+  return (
+    <div className="field">
+      <label>נראות</label>
+      <div className="vis-radio">
+        <button type="button"
+          className={"vis-opt " + (value === "shared" ? "is-active" : "")}
+          onClick={() => onChange("shared")}>
+          {Icon.users}<span>משותף עם הצוות</span>
+        </button>
+        <button type="button"
+          className={"vis-opt " + (value === "private" ? "is-active" : "")}
+          onClick={() => onChange("private")}>
+          {Icon.lock}<span>פרטי (רק אני)</span>
+        </button>
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--ink-3)", marginTop: 6, lineHeight: 1.5 }}>
+        {value === "shared"
+          ? `כל חברי הצוות יראו ויוכלו לערוך את ${noun} הזה.`
+          : `${noun} יוצג רק לך. ניתן להפוך למשותף בכל עת.`}
+      </div>
+    </div>
+  );
+}
+
+// ─── Project modal ──────────────────────────────────────────
+// showVisibility is false when the parent תחום is already private
+// (the project then inherits it — nobody else can see it anyway).
+function ProjectModal({ project, onSave, onClose, allowStandardTasks, currentUserEmail, showVisibility }) {
+  const [name, setName] = useState(project?.name || "");
+  const [summary, setSummary] = useState(project?.summary || "");
+  const [withStd, setWithStd] = useState(allowStandardTasks);
+  const [visibility, setVisibility] = useState(project?.visibility || "shared");
+  const submit = () => {
+    const n = name.trim();
+    if (!n) return;
+    const fields = { name: n, summary: summary.trim(), withStandardTasks: withStd };
+    if (showVisibility) {
+      fields.visibility = visibility;
+      fields.owner = visibility === "private"
+        ? (project?.owner || currentUserEmail || null)
+        : null;
+    }
+    onSave(fields);
   };
   return (
     <Modal
@@ -166,6 +235,9 @@ function ProjectModal({ project, onSave, onClose, allowStandardTasks }) {
             הוסף את 10 המשימות הסטנדרטיות לפרויקט
           </label>
         </div>
+      )}
+      {showVisibility && (
+        <VisibilityPicker value={visibility} onChange={setVisibility} noun="הפרויקט" />
       )}
     </Modal>
   );
@@ -339,6 +411,6 @@ function useDragList(onReorder) {
 
 Object.assign(window, {
   Icon, Progress, StatusPill, CollapseToggle,
-  Modal, CityModal, ProjectModal, TaskModal, ConfirmModal,
+  Modal, AreaModal, CityModal, VisibilityPicker, ProjectModal, TaskModal, ConfirmModal,
   useDragList,
 });

@@ -6,7 +6,7 @@ const STORAGE_KEY = "tm_data_v1";
 function loadInitial() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) return window.TM.migrate(JSON.parse(raw));
   } catch (e) { /* fall through */ }
   return JSON.parse(JSON.stringify(window.TM.SEED));
 }
@@ -21,7 +21,7 @@ function useStore(cloud) {
     if (!isCloud) return;
     if (cloud.data) {
       skipNextSave.current = true;
-      setData(cloud.data);
+      setData(window.TM.migrate(cloud.data));
     }
   }, [isCloud, cloud && cloud.data]);
 
@@ -40,7 +40,26 @@ function useStore(cloud) {
   const update = React.useCallback((fn) => setData(prev => fn(prev)), []);
 
   const actions = React.useMemo(() => ({
-    // CITY
+    // AREA (תחום)
+    addArea: (name, opts = {}) => update(d => ({ ...d, areas: [...d.areas, window.TM.newArea(name, opts)] })),
+    updateArea: (areaId, fields) => update(d => ({
+      ...d,
+      areas: d.areas.map(a => a.id === areaId ? { ...a, ...fields } : a),
+    })),
+    // Deleting an area keeps its clients — they move to "ללא תחום".
+    deleteArea: (areaId) => update(d => ({
+      ...d,
+      areas: d.areas.filter(a => a.id !== areaId),
+      cities: d.cities.map(c => c.areaId === areaId ? { ...c, areaId: null } : c),
+    })),
+    reorderAreas: (fromIdx, toIdx) => update(d => {
+      const next = [...d.areas];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return { ...d, areas: next };
+    }),
+
+    // CITY (מזמין עבודה)
     addCity: (name, opts = {}) => update(d => ({ ...d, cities: [...d.cities, window.TM.newCity(name, opts)] })),
     updateCity: (cityId, fields) => update(d => ({
       ...d,
@@ -57,12 +76,12 @@ function useStore(cloud) {
     }),
 
     // PROJECT
-    addProject: (cityId, name, summary, withStandardTasks) => update(d => ({
+    addProject: (cityId, name, summary, withStandardTasks, opts = {}) => update(d => ({
       ...d,
       cities: d.cities.map(c => c.id === cityId ? {
         ...c,
         projects: [...c.projects, {
-          ...window.TM.newProject(name, summary),
+          ...window.TM.newProject(name, summary, opts),
           tasks: withStandardTasks ? window.TM.standardTasks() : [],
         }],
       } : c),
@@ -147,36 +166,90 @@ function useStore(cloud) {
     })),
 
     // DATA
-    replaceAll: (newData) => setData(newData),
+    replaceAll: (newData) => setData(window.TM.migrate(newData)),
     resetSeed: () => setData(JSON.parse(JSON.stringify(window.TM.SEED))),
-    clearAll: () => setData({ cities: [] }),
+    clearAll: () => setData({ areas: [], cities: [] }),
   }), [update]);
 
   return [data, actions];
 }
 
 // ─── derived helpers ──────────────────────────────────────────
-function summarize(data) {
-  let projects = 0, tasks = 0, doneTasks = 0, doingTasks = 0;
+// Pseudo-area for clients that aren't assigned to any (existing) area.
+const UNASSIGNED_AREA = { id: "__none", name: "ללא תחום", visibility: "shared", owner: null, isUnassigned: true };
+
+// What this user may see, as a tree: [{ area, clients: [{ city, projects }] }].
+// Anything private at any level (area / client / project) is shown only to its owner.
+function visibleTree(data, userEmail) {
+  const canSee = window.TM.canSee;
+  const areaIds = new Set(data.areas.map(a => a.id));
+  const clientsOf = (area) => data.cities
+    .filter(c => area.isUnassigned ? !areaIds.has(c.areaId) : c.areaId === area.id)
+    .filter(c => canSee(c, userEmail))
+    .map(city => ({ city, projects: city.projects.filter(p => canSee(p, userEmail)) }));
+  const tree = data.areas
+    .filter(a => canSee(a, userEmail))
+    .map(area => ({ area, clients: clientsOf(area) }));
+  const unassigned = clientsOf(UNASSIGNED_AREA);
+  if (unassigned.length) tree.push({ area: UNASSIGNED_AREA, clients: unassigned });
+  return tree;
+}
+
+function summarize(data, userEmail) {
+  const tree = visibleTree(data, userEmail);
+  let clients = 0, projects = 0, tasks = 0, doneTasks = 0, doingTasks = 0;
   let weightedSum = 0;
-  for (const c of data.cities) {
-    for (const p of c.projects) {
-      projects++;
-      for (const t of p.tasks) {
-        tasks++;
-        const w = window.TM.STATUS_BY_KEY[t.status]?.weight ?? 0;
-        weightedSum += w;
-        if (t.status === "done") doneTasks++;
-        if (t.status === "doing") doingTasks++;
+  for (const { clients: cs } of tree) {
+    for (const { projects: ps } of cs) {
+      clients++;
+      for (const p of ps) {
+        projects++;
+        for (const t of p.tasks) {
+          tasks++;
+          weightedSum += window.TM.STATUS_BY_KEY[t.status]?.weight ?? 0;
+          if (t.status === "done") doneTasks++;
+          if (t.status === "doing") doingTasks++;
+        }
       }
     }
   }
   const overall = tasks ? Math.round((weightedSum / tasks) * 100) : 0;
   return {
-    cities: data.cities.length,
-    projects, tasks, doneTasks, doingTasks,
+    areas: tree.filter(n => !n.area.isUnassigned).length,
+    clients, projects, tasks, doneTasks, doingTasks,
     overall,
   };
+}
+
+// Open tasks for the dashboard TODO list, one group per area. Dated tasks are
+// ranked by urgency; undated ones are only summarized per project.
+function buildTodos(data, userEmail) {
+  const { todoScore } = window.TM;
+  return visibleTree(data, userEmail).map(({ area, clients }) => {
+    const items = [], undated = [];
+    for (const { city, projects } of clients) {
+      for (const project of projects) {
+        let count = 0;
+        for (const task of project.tasks) {
+          if (task.status === "done") continue;
+          if (!task.due) { count++; continue; }
+          items.push({ task, city, project, score: todoScore(task) });
+        }
+        if (count) undated.push({ city, project, count });
+      }
+    }
+    items.sort((a, b) => b.score - a.score);
+    return { area, items, undated };
+  });
+}
+
+function findArea(data, areaId) {
+  if (areaId === UNASSIGNED_AREA.id) return UNASSIGNED_AREA;
+  return data.areas.find(a => a.id === areaId) || null;
+}
+// The area a client belongs to (UNASSIGNED_AREA if none / deleted).
+function areaOf(data, city) {
+  return data.areas.find(a => a.id === city.areaId) || UNASSIGNED_AREA;
 }
 
 function findCity(data, cityId) {
@@ -194,6 +267,7 @@ function parseHash() {
   const h = (window.location.hash || "#/").replace(/^#/, "");
   const parts = h.split("/").filter(Boolean);
   if (parts.length === 0) return { view: "dashboard" };
+  if (parts[0] === "area" && parts[1]) return { view: "area", areaId: parts[1] };
   if (parts[0] === "city" && parts[1]) return { view: "city", cityId: parts[1] };
   if (parts[0] === "project" && parts[1] && parts[2])
     return { view: "project", cityId: parts[1], projectId: parts[2] };
@@ -212,4 +286,8 @@ function go(path) {
   window.location.hash = path;
 }
 
-Object.assign(window, { useStore, useRoute, go, summarize, findCity, findProject });
+Object.assign(window, {
+  useStore, useRoute, go,
+  UNASSIGNED_AREA, visibleTree, summarize, buildTodos,
+  findArea, areaOf, findCity, findProject,
+});

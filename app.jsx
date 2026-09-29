@@ -54,7 +54,8 @@ function Splash() {
 // ─── Status pill (synced / saving / offline / local) ─────────
 function CloudBadge({ cloud, installPrompt, onInstall }) {
   let label, color;
-  if (cloud.mode === "local") { label = "מצב מקומי", color = "#64748b"; }
+  if (window.IS_DEV)          { label = "תצוגה מקדימה — נתוני דוגמה", color = "#7c3aed"; }
+  else if (cloud.mode === "local") { label = "מצב מקומי", color = "#64748b"; }
   else if (cloud.status === "saving")  { label = "שומר…",   color = "#d97706"; }
   else if (cloud.status === "error")   { label = "שגיאה",   color = "#b91c1c"; }
   else                                  { label = "מסונכרן", color = "#15803d"; }
@@ -73,7 +74,9 @@ function CloudBadge({ cloud, installPrompt, onInstall }) {
           <span className="cb-name" title={cloud.user.email}>
             {cloud.user.name || cloud.user.email}
           </span>
-          <button className="cb-action" onClick={cloud.signOut} title="התנתק">יציאה</button>
+          {!window.IS_DEV && (
+            <button className="cb-action" onClick={cloud.signOut} title="התנתק">יציאה</button>
+          )}
         </>
       )}
       {installPrompt && (
@@ -138,7 +141,10 @@ function Workspace({ cloud, installPrompt, onInstall }) {
 
   // ── route dispatch ──
   let body;
-  if (route.view === "city")
+  if (route.view === "area")
+    body = <window.AreaView data={data} actions={actions} search={search}
+            areaId={route.areaId} userEmail={cloud.user?.email} />;
+  else if (route.view === "city")
     body = <window.CityView data={data} actions={actions} search={search}
             cityId={route.cityId} userEmail={cloud.user?.email} />;
   else if (route.view === "project")

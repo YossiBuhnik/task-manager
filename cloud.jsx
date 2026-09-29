@@ -27,6 +27,11 @@ function useCloud() {
 
   // ── initialize Firebase once ──
   cUseEffect(() => {
+    if (window.IS_DEV) {
+      setUser(window.DEV_USER);
+      setMode("local");
+      return;
+    }
     if (!window.isFirebaseConfigured || !window.isFirebaseConfigured()) {
       setMode("local");
       return;

@@ -131,21 +131,36 @@
     tasks,
   });
 
-  const mkCity = (name, projects) => ({
+  const mkCity = (areaId, name, projects) => ({
     id: uid("c"),
+    areaId,
     name,
     projects,
   });
 
+  // ─── תחומים (top level) ─────────────────────────────────────
+  // Data model: areas (תחום) → cities (מזמין עבודה) → projects → tasks.
+  // Clients are still stored under the historic key "cities" so existing cloud
+  // data keeps working; each one points at its area via areaId.
+  // The default areas have fixed ids so every device migrates old data the same way.
+  const DEFAULT_AREAS = [
+    { id: "area_office", name: "משרד",           visibility: "shared", owner: null },
+    { id: "area_pm",     name: "ניהול פרויקטים", visibility: "shared", owner: null },
+    { id: "area_qa",     name: "הבטחת איכות",    visibility: "shared", owner: null },
+  ];
+
   const SEED = {
+    areas: DEFAULT_AREAS,
     cities: [
-      mkCity("משימות משרד", [
+      mkCity("area_office", "TSK — פנימי", [
         mkProject("הגשת דוח רבעוני", "סגירת רבעון, אסיפת שותפים", [
           mkTask("איסוף נתונים פיננסיים מהנהלת חשבונות", "done",  offset(-5), "דנה לוי",   "high"),
           mkTask("בדיקת תקציב מול ביצוע",                "doing", offset(2),  "דנה לוי",   "high",
             "ממתינים לסגירת חשבוניות ספקים."),
           mkTask("הכנת מצגת לשותפים",                    "todo",  offset(7),  "אבי גרין",  "mid"),
           mkTask("העברת הדוח לרו\"ח",                    "todo",  offset(10), "דנה לוי",   "high"),
+          mkTask("חידוש מנוי תוכנות",                      "todo",  offset(-6), "דנה לוי",   "mid"),
+          mkTask("סידור ארכיון",                           "todo",  "",         "",          "low"),
         ]),
         mkProject("חידוש ביטוחים", "ביטוח חבות מקצועית + מבנה", [
           mkTask("השוואת הצעות מחיר מ-3 חברות", "doing", offset(4),  "רונית שמש", "high"),
@@ -158,7 +173,7 @@
           mkTask("סבב ראיונות ראשון",  "todo",  offset(8),  "אבי גרין", "high"),
         ]),
       ]),
-      mkCity("תל אביב", [
+      mkCity("area_pm", "עיריית תל אביב", [
         mkProject("תוספת רמזורים — צומת אבן גבירול", "תכנון והקמת רמזור חדש", [
           mkTask(STANDARD_TASKS[0], "done",  offset(-30), "יוסי כהן",  "high"),
           mkTask(STANDARD_TASKS[1], "done",  offset(-25), "יוסי כהן",  "high"),
@@ -186,9 +201,9 @@
           mkTask(STANDARD_TASKS[9], "todo",  offset(40), "דנה לוי",   "low"),
         ]),
       ]),
-      mkCity("אשדוד", [
+      mkCity("area_qa", "חברה כלכלית אשדוד", [
         mkProject("שיפוץ כיכר המייסדים", "החלפת ריצוף ותאורה", [
-          mkTask(STANDARD_TASKS[0], "doing", offset(1),  "רונית שמש", "high"),
+          mkTask(STANDARD_TASKS[0], "doing", offset(-3), "רונית שמש", "high"),
           mkTask(STANDARD_TASKS[1], "todo",  offset(8),  "רונית שמש", "mid"),
           mkTask(STANDARD_TASKS[2], "todo",  offset(15), "דנה לוי",   "mid"),
           mkTask(STANDARD_TASKS[4], "todo",  offset(22), "אבי גרין",  "low"),
@@ -202,9 +217,23 @@
   };
 
   // ─── empty city / project / task factories ──────────────────
-  const newCity = (name, { visibility = "shared", owner = null } = {}) =>
-    ({ id: uid("c"), name, visibility, owner, projects: [] });
-  const newProject = (name, summary = "") => ({ id: uid("p"), name, summary, tasks: [] });
+  const newArea = (name, { visibility = "shared", owner = null } = {}) =>
+    ({ id: uid("a"), name, visibility, owner });
+  const newCity = (name, { areaId = null, visibility = "shared", owner = null } = {}) =>
+    ({ id: uid("c"), name, areaId, visibility, owner, projects: [] });
+
+  // Old data (before areas existed) → add the default areas. Clients without an
+  // area show up under "ללא תחום" until assigned in their edit dialog.
+  const migrate = (data) => {
+    if (!data || Array.isArray(data.areas)) return data;
+    return { ...data, areas: DEFAULT_AREAS.map(a => ({ ...a })) };
+  };
+  const newProject = (name, summary = "", { visibility = "shared", owner = null } = {}) =>
+    ({ id: uid("p"), name, summary, visibility, owner, tasks: [] });
+
+  // Can this user see a תחום / client / project? (private items are shown only to their owner)
+  const canSee = (item, email) =>
+    !item.visibility || item.visibility === "shared" || !email || item.owner === email;
   const newTask = (title) => ({
     id: uid("t"),
     title,
@@ -216,8 +245,19 @@
     assignee: "",
     priority: "mid",
     notes: "",
+    createdAt: toDateInput(new Date()),
   });
   const standardTasks = () => STANDARD_TASKS.map(t => newTask(t));
+
+  // ─── TODO ranking ───────────────────────────────────────────
+  // Higher score = more urgent. Days overdue count 1:1; priority shifts a task
+  // by a week either way; every 4 days a task has been waiting adds a day.
+  const PRIO_BONUS = { high: 7, mid: 0, low: -7 };
+  const todoScore = (task) => {
+    const overdue = -daysUntil(task.due);
+    const age = task.createdAt ? Math.max(0, -daysUntil(task.createdAt)) : 0;
+    return overdue + (PRIO_BONUS[task.priority] ?? 0) + age / 4;
+  };
 
   // ─── per-area color palette (stable, hash-based) ────────────
   const AREA_COLORS = [
@@ -246,6 +286,8 @@
     toDateInput, formatHeDate, daysUntil,
     taskProgress, tasksProgress,
     calendarUrl,
-    newCity, newProject, newTask, standardTasks,
+    DEFAULT_AREAS, migrate,
+    newArea, newCity, newProject, newTask, standardTasks,
+    canSee, todoScore,
   };
 })();

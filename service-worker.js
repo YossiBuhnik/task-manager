@@ -2,7 +2,7 @@
 // Strategy: cache app shell on install; runtime cache-first for same-origin static
 // files; network for everything else (especially Firebase APIs).
 
-const VERSION = "v1";
+const VERSION = "v2";
 const SHELL_CACHE = `tm-shell-${VERSION}`;
 
 // Files that make up the app shell. Paths are relative to scope (the folder
