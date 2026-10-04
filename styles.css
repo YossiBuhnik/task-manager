@@ -790,6 +790,35 @@ input, textarea, select {
   .topbar { flex-wrap: wrap; }
 }
 
+/* Touch screens have no hover — always show row actions; drag handle is mouse-only */
+@media (hover: none) {
+  .task-row .row-actions { opacity: 1; }
+  .task-handle { display: none; }
+}
+
+/* Phone: task row as a two-line card, like the dashboard TODO list —
+   title on top (wrapping), status / due / priority / actions underneath. */
+@media (max-width: 640px) {
+  .task-row {
+    grid-template-columns: auto auto 1fr auto;
+    grid-template-areas:
+      "title  title title actions"
+      "status due   prio  prio";
+    gap: 4px 10px;
+    padding: 12px 14px;
+  }
+  .task-handle, .task-assignee-cell { display: none; }
+  .task-title-cell { grid-area: title; align-items: flex-start; }
+  .task-title-cell .task-check { margin-top: 2px; }
+  .task-title { white-space: normal; overflow-wrap: anywhere; }
+  .task-status-cell { grid-area: status; padding-inline-start: 28px; }
+  .task-due-cell { grid-area: due; display: block; }
+  .task-due-cell .due-stack { flex-direction: row; gap: 6px; font-size: 12px; white-space: nowrap; }
+  .task-prio-cell { grid-area: prio; justify-self: start; }
+  .task-row .row-actions { grid-area: actions; opacity: 1; align-self: start; margin-top: -4px; }
+  .task-notes-row { padding: 4px 14px 12px; padding-inline-start: 42px; }
+}
+
 /* ─── Date / time stack in task row ─── */
 .due-stack {
   display: flex;

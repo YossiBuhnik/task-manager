@@ -21,9 +21,11 @@ window.FIREBASE_CONFIG = {
 // Default: /teams/main — one shared doc, simple for small teams.
 window.FIREBASE_TEAM_DOC = { collection: "teams", id: "main" };
 
-// Dev preview: when running on this computer (localhost), never touch the real
-// team data — run in local mode with sample data and a stand-in user instead.
-window.IS_DEV = ["localhost", "127.0.0.1"].includes(location.hostname);
+// Dev preview: when served from this computer (localhost, or its address on the
+// local Wi-Fi so a phone can preview too), never touch the real team data —
+// run in local mode with sample data and a stand-in user instead.
+window.IS_DEV = ["localhost", "127.0.0.1"].includes(location.hostname)
+  || /^(192\.168\.\d+|10\.\d+\.\d+)\.\d+$/.test(location.hostname);
 window.DEV_USER = { email: "dev@localhost", name: "מצב פיתוח" };
 
 // Helper for the rest of the app — true when real values are present.
