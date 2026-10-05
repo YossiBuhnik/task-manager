@@ -39,6 +39,18 @@ function StatusPill({ status }) {
   return <span className={"pill " + s.pill}>{s.label}</span>;
 }
 
+// ─── App logo glyph (progress ring + check, same as icons/*.png) ──
+function BrandGlyph() {
+  return (
+    <svg viewBox="0 0 512 512" aria-hidden="true">
+      <circle cx="256" cy="256" r="150" fill="none" stroke="currentColor" strokeOpacity="0.3" strokeWidth="48" />
+      <circle cx="256" cy="256" r="150" fill="none" stroke="currentColor" strokeWidth="48" strokeLinecap="round"
+        strokeDasharray="660 943" transform="rotate(-90 256 256)" />
+      <path d="M196 262l42 42 82-92" fill="none" stroke="currentColor" strokeWidth="48" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 // ─── Collapse toggle ────────────────────────────────────────
 function CollapseToggle({ collapsed, onToggle }) {
   return (
@@ -410,7 +422,7 @@ function useDragList(onReorder) {
 }
 
 Object.assign(window, {
-  Icon, Progress, StatusPill, CollapseToggle,
+  Icon, BrandGlyph, Progress, StatusPill, CollapseToggle,
   Modal, AreaModal, CityModal, VisibilityPicker, ProjectModal, TaskModal, ConfirmModal,
   useDragList,
 });

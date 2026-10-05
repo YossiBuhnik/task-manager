@@ -19,7 +19,7 @@ function SignInScreen({ onSignIn }) {
   return (
     <div className="signin">
       <div className="signin-card">
-        <div className="signin-mark">מ</div>
+        <div className="signin-mark"><window.BrandGlyph /></div>
         <h1>מנהל פרויקטים</h1>
         <p>התחבר כדי לסנכרן את הנתונים שלך עם הצוות, בין המכשירים, באופן מיידי.</p>
         <button className="btn-google" onClick={onSignIn}>
@@ -44,7 +44,7 @@ function Splash() {
   return (
     <div className="signin">
       <div className="signin-card" style={{ textAlign: "center" }}>
-        <div className="signin-mark">מ</div>
+        <div className="signin-mark"><window.BrandGlyph /></div>
         <p style={{ color: "var(--ink-3)" }}>טוען…</p>
       </div>
     </div>

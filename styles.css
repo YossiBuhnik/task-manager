@@ -106,14 +106,13 @@ input, textarea, select {
 }
 .brand-mark {
   width: 28px; height: 28px;
-  background: var(--ink);
-  color: var(--bg);
+  background: var(--accent);
+  color: #fff;
   display: grid;
   place-items: center;
   border-radius: 7px;
-  font-size: 14px;
-  font-weight: 800;
 }
+.brand-mark svg { width: 22px; height: 22px; }
 
 .topbar-spacer { flex: 1; }
 
@@ -716,6 +715,7 @@ input, textarea, select {
   border-bottom: 1px solid var(--line);
 }
 .todo-col-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.todo-col-toggle { display: none; }
 .todo-empty { color: var(--ink-3); font-size: 13px; padding: 14px 0 4px; }
 .todo-item {
   display: flex;
@@ -817,6 +817,16 @@ input, textarea, select {
   .task-prio-cell { grid-area: prio; justify-self: start; }
   .task-row .row-actions { grid-area: actions; opacity: 1; align-self: start; margin-top: -4px; }
   .task-notes-row { padding: 4px 14px 12px; padding-inline-start: 42px; }
+
+  /* Dashboard TODO columns fold into a tappable header per תחום */
+  .todo-grid { gap: 8px; }
+  .todo-col { padding: 0 14px; }
+  .todo-col-head { cursor: pointer; padding: 12px 0; user-select: none; -webkit-tap-highlight-color: transparent; }
+  .todo-col-head .section-count { margin-inline-start: auto; }
+  .todo-col-toggle { display: inline-flex; pointer-events: none; }
+  .todo-col:not(.is-open) .todo-col-head { border-bottom: 0; }
+  .todo-col:not(.is-open) .todo-col-body { display: none; }
+  .todo-col.is-open .todo-col-body { padding-bottom: 14px; }
 }
 
 /* ─── Date / time stack in task row ─── */
@@ -967,10 +977,10 @@ input, textarea, select {
   background: var(--accent);
   color: #fff;
   display: grid; place-items: center;
-  font-size: 28px; font-weight: 800;
   margin: 0 auto 18px;
   box-shadow: 0 6px 18px rgba(30,64,175,.25);
 }
+.signin-mark svg { width: 44px; height: 44px; }
 .signin h1 {
   font-size: 22px;
   font-weight: 700;

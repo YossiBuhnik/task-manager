@@ -10,7 +10,7 @@ function TopBar({ search, onSearchChange }) {
   return (
     <header className="topbar">
       <div className="brand">
-        <div className="brand-mark">מ</div>
+        <div className="brand-mark"><window.BrandGlyph /></div>
         <span>מנהל פרויקטים</span>
       </div>
       <div className="topbar-spacer" />
@@ -65,65 +65,71 @@ function dueLabel(due) {
 
 function TodoColumn({ group, actions }) {
   const [shown, setShown] = vUseState(TODO_PAGE);
+  // Phone only: each column starts closed so the תחומים section is reachable
+  // without scrolling. On wider screens CSS ignores this and shows everything.
+  const [open, setOpen] = vUseState(false);
   const { area, items, undated } = group;
   const visible = items.slice(0, shown);
   const more = items.length - visible.length;
   const openProject = (city, project) => window.go("/project/" + city.id + "/" + project.id);
 
   return (
-    <div className="todo-col">
-      <div className="todo-col-head">
+    <div className={"todo-col" + (open ? " is-open" : "")}>
+      <div className="todo-col-head" onClick={() => setOpen(v => !v)}>
+        <span className="todo-col-toggle"><window.CollapseToggle collapsed={!open} onToggle={() => {}} /></span>
         <h3>{area.name}</h3>
         {area.visibility === "private" && <span className="vis-badge" title="תחום פרטי">{window.Icon.lock}</span>}
         <span className="section-count">{items.length}</span>
       </div>
 
-      {items.length === 0 && undated.length === 0 && (
-        <div className="todo-empty">אין משימות פתוחות</div>
-      )}
+      <div className="todo-col-body">
+        {items.length === 0 && undated.length === 0 && (
+          <div className="todo-empty">אין משימות פתוחות</div>
+        )}
 
-      {visible.map(({ task, city, project }) => {
-        const due = dueLabel(task.due);
-        const prio = window.TM.PRIORITY_BY_KEY[task.priority] || window.TM.PRIORITIES[1];
-        const color = window.TM.areaColorFor(city.id);
-        return (
-          <div key={task.id} className="todo-item">
-            <button className="task-check" title="סמן כהושלם"
-              onClick={() => actions.updateTask(city.id, project.id, task.id, { status: "done" })} />
-            <div className="todo-body">
-              <div className="todo-title" onClick={() => openProject(city, project)}>{task.title}</div>
-              <div className="todo-meta">
-                <span className={"todo-due " + due.cls}>{due.text}</span>
-                <span className={"prio-tag " + prio.cls}>{prio.label}</span>
-                {task.status === "doing" && <span className="pill pill-doing">בתהליך</span>}
-                <a className="todo-proj" href={"#/project/" + city.id + "/" + project.id}
-                  style={{ "--area-color": color.bar, "--area-soft": color.soft, "--area-ink": color.ink }}>
-                  {city.name} › {project.name}
-                </a>
+        {visible.map(({ task, city, project }) => {
+          const due = dueLabel(task.due);
+          const prio = window.TM.PRIORITY_BY_KEY[task.priority] || window.TM.PRIORITIES[1];
+          const color = window.TM.areaColorFor(city.id);
+          return (
+            <div key={task.id} className="todo-item">
+              <button className="task-check" title="סמן כהושלם"
+                onClick={() => actions.updateTask(city.id, project.id, task.id, { status: "done" })} />
+              <div className="todo-body">
+                <div className="todo-title" onClick={() => openProject(city, project)}>{task.title}</div>
+                <div className="todo-meta">
+                  <span className={"todo-due " + due.cls}>{due.text}</span>
+                  <span className={"prio-tag " + prio.cls}>{prio.label}</span>
+                  {task.status === "doing" && <span className="pill pill-doing">בתהליך</span>}
+                  <a className="todo-proj" href={"#/project/" + city.id + "/" + project.id}
+                    style={{ "--area-color": color.bar, "--area-soft": color.soft, "--area-ink": color.ink }}>
+                    {city.name} › {project.name}
+                  </a>
+                </div>
               </div>
             </div>
+          );
+        })}
+
+        {more > 0 && (
+          <button className="btn btn-ghost btn-sm todo-more" onClick={() => setShown(s => s + TODO_PAGE)}>
+            הצג עוד ({more})
+          </button>
+        )}
+
+        {undated.length > 0 && (
+          <div className="todo-undated">
+            <div className="todo-undated-title">משימות פתוחות ללא תאריך יעד</div>
+            {undated.map(({ city, project, count }) => (
+              <a key={project.id} className="todo-undated-row"
+                href={"#/project/" + city.id + "/" + project.id}>
+                <span>{city.name} › {project.name}</span>
+                <span className="section-count">{count}</span>
+              </a>
+            ))}
           </div>
-        );
-      })}
-
-      {more > 0 && (
-        <button className="btn btn-ghost btn-sm todo-more" onClick={() => setShown(s => s + TODO_PAGE)}>
-          הצג עוד ({more})
-        </button>
-      )}
-
-      {undated.length > 0 && (
-        <div className="todo-undated">
-          <div className="todo-undated-title">משימות פתוחות ללא תאריך יעד</div>
-          {undated.map(({ city, project, count }) => (
-            <a key={project.id} className="todo-undated-row"
-              href={"#/project/" + city.id + "/" + project.id}>
-              <span>{city.name} › {project.name}</span>
-              <span className="section-count">{count}</span>
-            </a>
-          ))}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
