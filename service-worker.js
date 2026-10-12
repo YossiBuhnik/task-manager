@@ -1,8 +1,9 @@
 // service-worker.js — minimal PWA cache
-// Strategy: cache app shell on install; runtime cache-first for same-origin static
-// files; network for everything else (especially Firebase APIs).
+// Strategy: cache app shell on install; network-first for same-origin files (so a
+// deploy shows up on the next open, with the cache as the offline fallback);
+// cache-first for CDN libraries; Firebase APIs are never intercepted.
 
-const VERSION = "v4";
+const VERSION = "v5";
 const SHELL_CACHE = `tm-shell-${VERSION}`;
 
 // Files that make up the app shell. Paths are relative to scope (the folder
@@ -61,18 +62,20 @@ self.addEventListener("fetch", (event) => {
     url.hostname.endsWith("google.com")
   ) return;
 
-  // Same-origin: cache-first with background refresh.
+  // Same-origin: network-first (revalidating past the HTTP cache), cache when offline.
   if (url.origin === self.location.origin) {
     event.respondWith((async () => {
       const cache = await caches.open(SHELL_CACHE);
-      const cached = await cache.match(req);
-      const fetchPromise = fetch(req).then((res) => {
+      try {
+        const res = await fetch(req, { cache: "no-cache" });
         if (res && res.status === 200 && res.type === "basic") {
           cache.put(req, res.clone()).catch(() => {});
         }
         return res;
-      }).catch(() => cached);
-      return cached || fetchPromise;
+      } catch (e) {
+        const cached = await cache.match(req);
+        return cached || new Response("offline", { status: 503 });
+      }
     })());
     return;
   }

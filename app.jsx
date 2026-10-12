@@ -152,7 +152,7 @@ function Workspace({ cloud, installPrompt, onInstall }) {
             cityId={route.cityId} projectId={route.projectId} userEmail={cloud.user?.email} />;
   else
     body = <window.DashboardView data={data} actions={actions} search={search}
-            userEmail={cloud.user?.email} />;
+            userEmail={cloud.user?.email} userName={cloud.user?.name} />;
 
   return (
     <div className="app">

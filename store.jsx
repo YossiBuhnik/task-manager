@@ -6,7 +6,7 @@ const STORAGE_KEY = "tm_data_v1";
 function loadInitial() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return window.TM.migrate(JSON.parse(raw));
+    if (raw) return window.TM.rollAllRecurring(window.TM.migrate(JSON.parse(raw)));
   } catch (e) { /* fall through */ }
   return JSON.parse(JSON.stringify(window.TM.SEED));
 }
@@ -20,8 +20,12 @@ function useStore(cloud) {
   React.useEffect(() => {
     if (!isCloud) return;
     if (cloud.data) {
-      skipNextSave.current = true;
-      setData(window.TM.migrate(cloud.data));
+      const migrated = window.TM.migrate(cloud.data);
+      // Recurring tasks completed elsewhere (another device, the Apps Script bridge)
+      // roll to their next date here — and that change is saved back.
+      const rolled = window.TM.rollAllRecurring(migrated);
+      skipNextSave.current = rolled === migrated;
+      setData(rolled);
     }
   }, [isCloud, cloud && cloud.data]);
 
@@ -122,7 +126,7 @@ function useStore(cloud) {
     // TASK
     addTask: (cityId, projectId, fields) => update(d => {
       const base = window.TM.newTask(typeof fields === "string" ? fields : (fields.title || ""));
-      const next = typeof fields === "string" ? base : { ...base, ...fields };
+      const next = window.TM.rollTask(typeof fields === "string" ? base : { ...base, ...fields });
       return {
         ...d,
         cities: d.cities.map(c => c.id === cityId ? {
@@ -138,7 +142,7 @@ function useStore(cloud) {
       cities: d.cities.map(c => c.id === cityId ? {
         ...c,
         projects: c.projects.map(p => p.id === projectId ? {
-          ...p, tasks: p.tasks.map(t => t.id === taskId ? { ...t, ...fields } : t),
+          ...p, tasks: p.tasks.map(t => t.id === taskId ? window.TM.rollTask({ ...t, ...fields }) : t),
         } : p),
       } : c),
     })),

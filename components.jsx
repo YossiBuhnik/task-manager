@@ -19,18 +19,125 @@ const Icon = {
   upload:  <svg className="ico" viewBox="0 0 24 24"><path d="M12 20V8m0 0l-4 4m4-4l4 4M4 4h16"/></svg>,
   refresh: <svg className="ico" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0115.5-6.3M21 12a9 9 0 01-15.5 6.3M16 5h5V0M8 19H3v5"/></svg>,
   lock:    <svg className="ico" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>,
+  repeat:  <svg className="ico" viewBox="0 0 24 24"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 013-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 01-3 3H3"/></svg>,
+  mail:    <svg className="ico" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>,
+  x:       <svg className="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>,
   users:   <svg className="ico" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M14.5 14.5c1-.3 1.8-.5 2.5-.5 2.8 0 5 2.2 5 5"/></svg>,
 };
 
 // ─── Progress bar ───────────────────────────────────────────
+// Color follows how far along it is (orange → blue → green); at 100% it turns
+// into a "complete" bar. Inside area cards the area color wins (see CSS).
+const progressTier = (v) => v >= 100 ? "is-complete" : v >= 67 ? "is-high" : v >= 34 ? "is-mid" : "is-low";
+const reducedMotion = () => !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+// Counts a number up to `target` (and from the old value when it changes).
+function useCountUp(target, ms = 900) {
+  const [shown, setShown] = useState(reducedMotion() ? target : 0);
+  const cur = useRef(shown);
+  useEffect(() => {
+    if (reducedMotion()) { cur.current = target; setShown(target); return; }
+    const from = cur.current, start = performance.now();
+    let raf;
+    const tick = (now) => {
+      const k = Math.min(1, (now - start) / ms);
+      cur.current = Math.round(from + (target - from) * (1 - Math.pow(1 - k, 3)));
+      setShown(cur.current);
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target]);
+  return shown;
+}
+
+// The percentage sits inside the bar; when the fill is too short for it, just past its end.
 function Progress({ value, showPct = true, size }) {
   const v = Math.max(0, Math.min(100, value || 0));
+  const shown = useCountUp(v);
+  const inside = v >= 20;
+  const label = <>{v === 100 && Icon.check}{shown}%</>;
   return (
-    <div className={"progress-row " + (size === "lg" ? "progress-lg" : "")}>
-      <div className="progress"><div className="progress-fill" style={{ width: v + "%" }} /></div>
-      {showPct && <span className="progress-pct">{v}%</span>}
+    <div className={"progress-row " + progressTier(v) + (size === "lg" ? " progress-lg" : "") + (showPct ? " has-label" : "")}>
+      <div className="progress" role="progressbar" aria-valuenow={v} aria-valuemin="0" aria-valuemax="100">
+        <div className="progress-fill" style={{ width: v + "%" }}>
+          {showPct && inside && <span className="progress-label">{label}</span>}
+        </div>
+        {showPct && !inside && (
+          <span className="progress-label is-outside" style={{ insetInlineStart: `calc(${v}% + 6px)` }}>{label}</span>
+        )}
+      </div>
     </div>
   );
+}
+
+// ─── Completion feedback: confetti burst + toast ────────────
+// Plain DOM outside React, so re-renders (and the task leaving the list) don't cut it short.
+const FX_COLORS = ["#2563eb", "#22c55e", "#f59e0b", "#ec4899", "#8b5cf6", "#14b8a6", "#f97316"];
+const CHEERS = ["כל הכבוד!", "יפה מאוד!", "עוד אחת מאחוריך", "ממשיכים בתנופה!", "מעולה!", "סגרת עוד משימה"];
+function confettiBurst(x, y, { count = 18, spread = 70 } = {}) {
+  if (reducedMotion()) return;
+  const layer = document.createElement("div");
+  layer.className = "fx-layer";
+  layer.style.left = x + "px";
+  layer.style.top = y + "px";
+  const ring = document.createElement("span");
+  ring.className = "fx-ring";
+  layer.appendChild(ring);
+  for (let i = 0; i < count; i++) {
+    const bit = document.createElement("span");
+    bit.className = "fx-bit" + (i % 3 === 0 ? " is-round" : "");
+    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
+    const dist = spread * (0.55 + Math.random() * 0.6);
+    bit.style.setProperty("--dx", Math.cos(angle) * dist + "px");
+    bit.style.setProperty("--dy", Math.sin(angle) * dist - spread * 0.35 + "px");
+    bit.style.setProperty("--rot", Math.round(Math.random() * 540 - 270) + "deg");
+    bit.style.background = FX_COLORS[i % FX_COLORS.length];
+    layer.appendChild(bit);
+  }
+  document.body.appendChild(layer);
+  setTimeout(() => layer.remove(), 1200);
+}
+
+function toast(title, sub, { big = false } = {}) {
+  let host = document.querySelector(".toast-host");
+  if (!host) {
+    host = document.createElement("div");
+    host.className = "toast-host";
+    host.setAttribute("role", "status");
+    document.body.appendChild(host);
+  }
+  while (host.children.length >= 3) host.firstChild.remove();
+  const el = document.createElement("div");
+  el.className = "toast" + (big ? " is-big" : "");
+  el.innerHTML = '<span class="toast-icon"><svg class="ico" viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg></span>'
+    + '<span class="toast-body"><strong></strong><span></span></span>';
+  el.querySelector("strong").textContent = title;          // user text → textContent only
+  el.querySelector(".toast-body span").textContent = sub || "";
+  host.appendChild(el);
+  setTimeout(() => el.classList.add("is-leaving"), big ? 3600 : 2600);
+  setTimeout(() => el.remove(), big ? 4000 : 3000);
+}
+
+// Call just before a task is marked done. `anchor` is the clicked element (the
+// burst starts there); a project whose last open task this was gets the big one.
+function celebrateDone(anchor, task, project) {
+  const r = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : null;
+  const x = r ? r.left + r.width / 2 : window.innerWidth / 2;
+  const y = r ? r.top + r.height / 2 : window.innerHeight / 2;
+  const projectDone = project && !task.recur
+    && project.tasks.every(t => t.id === task.id || t.status === "done");
+  confettiBurst(x, y);
+  if (projectDone) {
+    [0.2, 0.5, 0.8].forEach((fx, i) => setTimeout(() =>
+      confettiBurst(window.innerWidth * fx, window.innerHeight * 0.3, { count: 30, spread: 150 }), 150 + i * 160));
+    toast(`הפרויקט "${project.name}" הושלם!`, "כל המשימות סומנו כהושלמו — כל הכבוד", { big: true });
+    return;
+  }
+  const sub = task.recur
+    ? "חוזרת · המועד הבא: " + window.TM.formatHeDate(window.TM.nextRecurDue(task.recur, task.due))
+    : task.title;
+  toast(CHEERS[Math.floor(Math.random() * CHEERS.length)], sub);
 }
 
 // ─── Status pill (read-only) ────────────────────────────────
@@ -255,6 +362,102 @@ function ProjectModal({ project, onSave, onClose, allowStandardTasks, currentUse
   );
 }
 
+// ─── Recurrence picker (inside the task modal) ──────────────
+const RECUR_UNITS = { day: "ימים", week: "שבועות", month: "חודשים", year: "שנים" };
+
+function RecurField({ recur, due, onChange }) {
+  const TM = window.TM;
+  // Turning repetition on: take weekday / day of month from the due date (or today).
+  const setFreq = (freq) => {
+    if (!freq) return onChange(null, due);
+    const base = due || TM.toDateInput(new Date());
+    const rule = TM.recurFromDue({ freq, interval: 1, weekday: 0, month: 0, monthDay: 1 }, base);
+    onChange(rule, base);
+  };
+  // Changing which day it falls on moves the due date to the next such day.
+  const setDay = (fields) => {
+    const rule = { ...recur, ...fields };
+    onChange(rule, TM.firstRecurDue(rule));
+  };
+  const setInterval = (v) => {
+    const n = Math.max(1, Math.min(99, parseInt(v, 10) || 1));
+    onChange({ ...recur, interval: n }, due);
+  };
+  const days = Array.from({ length: 31 }, (_, i) => i + 1);
+
+  return (
+    <div className="field">
+      <label>חזרה</label>
+      <div className="recur-row">
+        <select value={recur?.freq || ""} onChange={(e) => setFreq(e.target.value)}>
+          <option value="">לא חוזרת</option>
+          <option value="day">יומית</option>
+          <option value="week">שבועית</option>
+          <option value="month">חודשית</option>
+          <option value="year">שנתית</option>
+        </select>
+        {recur && (
+          <>
+            <span className="recur-word">כל</span>
+            <input type="number" min="1" max="99" className="recur-num" value={recur.interval}
+              onChange={(e) => setInterval(e.target.value)} />
+            <span className="recur-word">{RECUR_UNITS[recur.freq]}</span>
+          </>
+        )}
+        {recur?.freq === "week" && (
+          <select value={recur.weekday} onChange={(e) => setDay({ weekday: Number(e.target.value) })}>
+            {TM.WEEKDAYS.map((d, i) => <option key={i} value={i}>ביום {d}</option>)}
+          </select>
+        )}
+        {recur?.freq === "year" && (
+          <select value={recur.month} onChange={(e) => setDay({ month: Number(e.target.value) })}>
+            {TM.MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
+          </select>
+        )}
+        {(recur?.freq === "month" || recur?.freq === "year") && (
+          <select value={recur.monthDay} onChange={(e) => setDay({ monthDay: Number(e.target.value) })}>
+            {days.map(d => <option key={d} value={d}>ב-{d}</option>)}
+            <option value={-1}>ביום האחרון</option>
+          </select>
+        )}
+      </div>
+      {recur && (
+        <div className="field-hint">
+          {TM.recurLabel(recur)}
+          {due && <> · תאריך היעד: {TM.formatHeDate(due)}</>}
+          {" · "}כשמסמנים "הושלם", המשימה עוברת למועד הבא
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Email-thread links (inside the task modal) ─────────────
+const isUrl = (s) => /^https?:\/\/\S+$/i.test(s.trim());
+
+function EmailLinksField({ emails, onChange, draft, onDraftChange, error }) {
+  const remove = (i) => onChange(emails.filter((_, j) => j !== i));
+  return (
+    <div className="field">
+      <label>שרשורי מייל <span style={{ color: "var(--ink-3)", fontWeight: 400 }}>(פותחים את השרשור ב-Gmail ומעתיקים את הכתובת מהדפדפן)</span></label>
+      {emails.map((e, i) => (
+        <div key={i} className="email-chip">
+          {Icon.mail}
+          <a href={e.url} target="_blank" rel="noopener noreferrer">{e.title}</a>
+          <button type="button" className="btn btn-ghost btn-icon" title="הסר קישור" onClick={() => remove(i)}>{Icon.x}</button>
+        </div>
+      ))}
+      <div className="email-add">
+        <input dir="ltr" value={draft.url} placeholder="https://mail.google.com/mail/u/0/#inbox/…"
+          onChange={(e) => onDraftChange({ ...draft, url: e.target.value })} />
+        <input value={draft.title} placeholder="נושא (אופציונלי)"
+          onChange={(e) => onDraftChange({ ...draft, title: e.target.value })} />
+      </div>
+      {error && <div className="field-error">{error}</div>}
+    </div>
+  );
+}
+
 // ─── Task modal ─────────────────────────────────────────────
 function TaskModal({ task, onSave, onClose, onDelete }) {
   const [t, setT] = useState({
@@ -267,11 +470,38 @@ function TaskModal({ task, onSave, onClose, onDelete }) {
     assignee: task?.assignee || "",
     priority: task?.priority || "mid",
     notes: task?.notes || "",
+    recur: task?.recur || null,
+    emails: task?.emails || [],
   });
+  const [emailDraft, setEmailDraft] = useState({ url: "", title: "" });
+  const [emailError, setEmailError] = useState("");
   const set = (k, v) => setT(prev => ({ ...prev, [k]: v }));
+  // A manual due-date change keeps a recurring rule in step with it.
+  const setDue = (due) => setT(prev => ({ ...prev, due, recur: window.TM.recurFromDue(prev.recur, due) }));
+  // A link typed but not yet listed is saved too.
+  const pendingEmail = () => {
+    const url = emailDraft.url.trim();
+    if (!url) return null;
+    if (!isUrl(url)) { setEmailError("הקישור צריך להתחיל ב-https://"); return false; }
+    return { url, title: emailDraft.title.trim() || "שרשור מייל" };
+  };
+  const addEmail = () => {
+    const e = pendingEmail();
+    if (!e) return;
+    set("emails", [...t.emails, e]);
+    setEmailDraft({ url: "", title: "" });
+    setEmailError("");
+  };
   const submit = () => {
     if (!t.title.trim()) return;
-    onSave({ ...t, title: t.title.trim(), participants: t.participants.trim() });
+    const e = pendingEmail();
+    if (e === false) return;
+    onSave({
+      ...t,
+      title: t.title.trim(),
+      participants: t.participants.trim(),
+      emails: e ? [...t.emails, e] : t.emails,
+    });
   };
   const hasTime = !!t.time;
   return (
@@ -312,7 +542,7 @@ function TaskModal({ task, onSave, onClose, onDelete }) {
       <div className="field-row">
         <div className="field">
           <label>תאריך יעד</label>
-          <input type="date" value={t.due} onChange={(e) => set("due", e.target.value)} />
+          <input type="date" value={t.due} onChange={(e) => setDue(e.target.value)} />
         </div>
         <div className="field">
           <label>שעה <span style={{ color: "var(--ink-3)", fontWeight: 400 }}>(אופציונלי)</span></label>
@@ -341,6 +571,8 @@ function TaskModal({ task, onSave, onClose, onDelete }) {
           </select>
         </div>
       )}
+      <RecurField recur={t.recur} due={t.due}
+        onChange={(recur, due) => setT(prev => ({ ...prev, recur, due }))} />
       <div className="field">
         <label>אחראי</label>
         <input value={t.assignee} onChange={(e) => set("assignee", e.target.value)}
@@ -355,6 +587,14 @@ function TaskModal({ task, onSave, onClose, onDelete }) {
         <label>הערות</label>
         <textarea value={t.notes} onChange={(e) => set("notes", e.target.value)} />
       </div>
+      <EmailLinksField emails={t.emails} onChange={(v) => set("emails", v)}
+        draft={emailDraft} error={emailError}
+        onDraftChange={(d) => { setEmailDraft(d); setEmailError(""); }} />
+      {emailDraft.url.trim() && (
+        <button type="button" className="btn btn-sm" style={{ marginTop: -6 }} onClick={addEmail}>
+          {Icon.plus}<span>הוסף קישור</span>
+        </button>
+      )}
     </Modal>
   );
 }
@@ -422,7 +662,7 @@ function useDragList(onReorder) {
 }
 
 Object.assign(window, {
-  Icon, BrandGlyph, Progress, StatusPill, CollapseToggle,
+  Icon, BrandGlyph, Progress, StatusPill, CollapseToggle, celebrateDone,
   Modal, AreaModal, CityModal, VisibilityPicker, ProjectModal, TaskModal, ConfirmModal,
   useDragList,
 });

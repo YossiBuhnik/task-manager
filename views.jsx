@@ -63,6 +63,29 @@ function dueLabel(due) {
   return { text: `בעוד ${n} ימים`, cls: n <= 3 ? "is-soon" : "" };
 }
 
+// Small icons beside a task: repeats (tooltip = rule) and linked email threads.
+// One thread links straight to it; several expand the row (onShowAll).
+function TaskBadges({ task, onShowAll }) {
+  const emails = task.emails || [];
+  return (
+    <>
+      {task.recur && (
+        <span className="task-badge" title={window.TM.recurLabel(task.recur)}>{window.Icon.repeat}</span>
+      )}
+      {emails.length === 1 && (
+        <a className="task-badge is-link" href={emails[0].url} target="_blank" rel="noopener noreferrer"
+          title={"פתח מייל: " + emails[0].title} onClick={(e) => e.stopPropagation()}>{window.Icon.mail}</a>
+      )}
+      {emails.length > 1 && (
+        <button type="button" className="task-badge is-link" title={emails.length + " שרשורי מייל"}
+          onClick={(e) => { e.stopPropagation(); onShowAll && onShowAll(); }}>
+          {window.Icon.mail}<span>{emails.length}</span>
+        </button>
+      )}
+    </>
+  );
+}
+
 function TodoColumn({ group, actions }) {
   const [shown, setShown] = vUseState(TODO_PAGE);
   // Phone only: each column starts closed so the תחומים section is reachable
@@ -72,9 +95,11 @@ function TodoColumn({ group, actions }) {
   const visible = items.slice(0, shown);
   const more = items.length - visible.length;
   const openProject = (city, project) => window.go("/project/" + city.id + "/" + project.id);
+  const areaColor = window.TM.areaColorFor(area.id);
 
   return (
-    <div className={"todo-col" + (open ? " is-open" : "")}>
+    <div className={"todo-col" + (open ? " is-open" : "")}
+      style={{ "--area-color": areaColor.bar, "--area-soft": areaColor.soft, "--area-ink": areaColor.ink }}>
       <div className="todo-col-head" onClick={() => setOpen(v => !v)}>
         <span className="todo-col-toggle"><window.CollapseToggle collapsed={!open} onToggle={() => {}} /></span>
         <h3>{area.name}</h3>
@@ -94,11 +119,15 @@ function TodoColumn({ group, actions }) {
           return (
             <div key={task.id} className="todo-item">
               <button className="task-check" title="סמן כהושלם"
-                onClick={() => actions.updateTask(city.id, project.id, task.id, { status: "done" })} />
+                onClick={(e) => {
+                  window.celebrateDone(e.currentTarget, task, project);
+                  actions.updateTask(city.id, project.id, task.id, { status: "done" });
+                }} />
               <div className="todo-body">
                 <div className="todo-title" onClick={() => openProject(city, project)}>{task.title}</div>
                 <div className="todo-meta">
                   <span className={"todo-due " + due.cls}>{due.text}</span>
+                  <TaskBadges task={task} onShowAll={() => openProject(city, project)} />
                   <span className={"prio-tag " + prio.cls}>{prio.label}</span>
                   {task.status === "doing" && <span className="pill pill-doing">בתהליך</span>}
                   <a className="todo-proj" href={"#/project/" + city.id + "/" + project.id}
@@ -164,7 +193,8 @@ function clientMatches(q, city, projects) {
     p.tasks.some(t =>
       t.title.toLowerCase().includes(q) ||
       (t.assignee || "").toLowerCase().includes(q) ||
-      (t.notes || "").toLowerCase().includes(q)
+      (t.notes || "").toLowerCase().includes(q) ||
+      (t.emails || []).some(e => e.title.toLowerCase().includes(q))
     )
   );
 }
@@ -183,7 +213,14 @@ function NoAccess({ title, text, back = "/" }) {
 // ───────────────────────────────────────────────────────────
 // DASHBOARD VIEW — list of תחומים
 // ───────────────────────────────────────────────────────────
-function DashboardView({ data, actions, search, userEmail }) {
+// Dashboard banner: greeting by time of day + what needs attention today.
+function heroGreeting(date) {
+  const h = date.getHours();
+  return h < 5 ? "לילה טוב" : h < 12 ? "בוקר טוב" : h < 17 ? "צהריים טובים" : h < 21 ? "ערב טוב" : "לילה טוב";
+}
+const countLabel = (n, what) => n === 1 ? `משימה אחת ${what}` : `${n} משימות ${what}`;
+
+function DashboardView({ data, actions, search, userEmail, userName }) {
   const [collapsed, setCollapsed] = vUseState(false);
   const [showAreaModal, setShowAreaModal] = vUseState(false);
   const [editArea, setEditArea] = vUseState(null);
@@ -192,6 +229,19 @@ function DashboardView({ data, actions, search, userEmail }) {
   const summary = vUseMemo(() => window.summarize(data, userEmail), [data, userEmail]);
   const tree = vUseMemo(() => window.visibleTree(data, userEmail), [data, userEmail]);
   const drag = window.useDragList((from, to) => actions.reorderAreas(from, to));
+  const now = new Date();
+  const firstName = !window.IS_DEV && userName ? userName.split(" ")[0] : "";
+  const focus = vUseMemo(() => {
+    let dueToday = 0, overdue = 0;
+    for (const { items } of window.buildTodos(data, userEmail)) {
+      for (const { task } of items) {
+        const n = window.TM.daysUntil(task.due);
+        if (n === 0) dueToday++;
+        else if (n < 0) overdue++;
+      }
+    }
+    return { dueToday, overdue };
+  }, [data, userEmail]);
 
   const filteredTree = vUseMemo(() => {
     if (!search) return tree;
@@ -205,8 +255,14 @@ function DashboardView({ data, actions, search, userEmail }) {
     <>
       <div className="page-head">
         <div>
-          <h1 className="page-title">סקירה כללית</h1>
-          <p className="page-sub">מעקב התקדמות פרויקטים בכל התחומים</p>
+          <span className="hero-eyebrow">{now.toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" })}</span>
+          <h1 className="page-title">{heroGreeting(now)}{firstName && `, ${firstName}`}</h1>
+          <div className="hero-chips">
+            {focus.dueToday > 0 && <span className="hero-chip">{window.Icon.cal}{countLabel(focus.dueToday, "להיום")}</span>}
+            {focus.overdue > 0 && <span className="hero-chip is-warn">{countLabel(focus.overdue, "באיחור")}</span>}
+            {focus.dueToday === 0 && focus.overdue === 0 && <span className="hero-chip">{window.Icon.check}אין משימות דחופות היום</span>}
+            <span className="hero-chip is-soft">{summary.overall}% מהמשימות הושלמו</span>
+          </div>
         </div>
         <button className="btn btn-primary" onClick={() => setShowAreaModal(true)}>
           {window.Icon.plus}<span>הוסף תחום</span>
@@ -232,7 +288,7 @@ function DashboardView({ data, actions, search, userEmail }) {
           <div className="kpi-label">התקדמות כוללת</div>
           <div className="kpi-value">{summary.overall}%</div>
           <div className="kpi-sub" style={{ marginTop: 10 }}>
-            <div className="progress"><div className="progress-fill" style={{ width: summary.overall + "%", background: "#65a30d" }} /></div>
+            <window.Progress value={summary.overall} showPct={false} />
           </div>
         </div>
       </div>
@@ -367,7 +423,7 @@ function AreaView({ data, actions, search, areaId, userEmail }) {
   return (
     <>
       <Crumbs items={[{ label: "סקירה", href: "/" }, { label: area.name }]} />
-      <div className="page-head">
+      <div className="page-head" style={{ "--hero": areaColor.bar }}>
         <div>
           <span className="area-pill"
             style={{ "--area-color": areaColor.bar, "--area-soft": areaColor.soft, "--area-ink": areaColor.ink }}>
@@ -517,7 +573,7 @@ function CityView({ data, actions, search, cityId, userEmail }) {
         { label: area.name, href: "/area/" + area.id },
         { label: city.name },
       ]} />
-      <div className="page-head">
+      <div className="page-head" style={{ "--hero": cityColor.bar }}>
         <div>
           <span className="area-pill"
             style={{ "--area-color": cityColor.bar, "--area-soft": cityColor.soft, "--area-ink": cityColor.ink }}>
@@ -644,6 +700,7 @@ function TaskRow({ task, city, project, actions, dragState, dragHandlers, onEdit
   const prio = window.TM.PRIORITY_BY_KEY[task.priority] || window.TM.PRIORITIES[1];
   const calHref = window.TM.calendarUrl(task, project.name, city.name);
   const daysUntil = window.TM.daysUntil(task.due);
+  const emails = task.emails || [];
 
   const dueDisplay = task.due
     ? (
@@ -657,11 +714,14 @@ function TaskRow({ task, city, project, actions, dragState, dragHandlers, onEdit
     )
     : <span className="task-meta muted">—</span>;
 
-  const cycleStatus = () => {
+  const setStatus = (next, anchor) => {
+    if (next === "done" && task.status !== "done") window.celebrateDone(anchor, task, project);
+    actions.updateTask(city.id, project.id, task.id, { status: next });
+  };
+  const cycleStatus = (e) => {
     const order = ["todo", "doing", "done"];
     const cur = order.indexOf(task.status);
-    const next = order[(cur + 1) % order.length];
-    actions.updateTask(city.id, project.id, task.id, { status: next });
+    setStatus(order[(cur + 1) % order.length], e.currentTarget);
   };
 
   return (
@@ -691,12 +751,13 @@ function TaskRow({ task, city, project, actions, dragState, dragHandlers, onEdit
             onClick={() => setExpanded(v => !v)}
             style={{ cursor: "pointer" }}
           >{task.title}</span>
+          <TaskBadges task={task} onShowAll={() => setExpanded(true)} />
         </div>
 
         <div className="task-status-cell">
           <select
             value={task.status}
-            onChange={(e) => actions.updateTask(city.id, project.id, task.id, { status: e.target.value })}
+            onChange={(e) => setStatus(e.target.value, e.target)}
             className={"pill " + status.pill}
             style={{ border: "0", paddingInline: 10, height: 24, fontWeight: 500 }}
           >
@@ -728,8 +789,24 @@ function TaskRow({ task, city, project, actions, dragState, dragHandlers, onEdit
           </button>
         </div>
       </div>
-      {expanded && task.notes && (
-        <div className="task-notes-row">{task.notes}</div>
+      {expanded && (task.notes || task.recur || emails.length > 0) && (
+        <div className="task-notes-row">
+          {task.recur && (
+            <div className="task-detail">
+              {window.Icon.repeat}
+              <span>
+                {window.TM.recurLabel(task.recur)}
+                {task.lastDone && <> · הושלמה לאחרונה {window.TM.formatHeDate(task.lastDone)}</>}
+              </span>
+            </div>
+          )}
+          {emails.map((e, i) => (
+            <a key={i} className="task-detail is-link" href={e.url} target="_blank" rel="noopener noreferrer">
+              {window.Icon.mail}<span>{e.title}</span>
+            </a>
+          ))}
+          {task.notes && <div className="task-notes-text">{task.notes}</div>}
+        </div>
       )}
     </>
   );
@@ -776,7 +853,8 @@ function ProjectView({ data, actions, search, cityId, projectId, userEmail }) {
       if (filterAssignee !== "all" && t.assignee !== filterAssignee) return;
       if (q && !(t.title.toLowerCase().includes(q) ||
                  (t.assignee || "").toLowerCase().includes(q) ||
-                 (t.notes || "").toLowerCase().includes(q))) return;
+                 (t.notes || "").toLowerCase().includes(q) ||
+                 (t.emails || []).some(e => e.title.toLowerCase().includes(q)))) return;
       result.push(idx);
     });
     return result;
@@ -794,7 +872,7 @@ function ProjectView({ data, actions, search, cityId, projectId, userEmail }) {
         { label: city.name, href: "/city/" + city.id },
         { label: project.name },
       ]} />
-      <div className="page-head">
+      <div className="page-head" style={{ "--hero": cityColor.bar }}>
         <div>
           <span className="area-pill"
             style={{ "--area-color": cityColor.bar, "--area-soft": cityColor.soft, "--area-ink": cityColor.ink }}>
@@ -825,22 +903,22 @@ function ProjectView({ data, actions, search, cityId, projectId, userEmail }) {
       </div>
 
       <div className="kpis" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
-        <div className="kpi">
+        <div className="kpi k-progress">
           <div className="kpi-label">התקדמות</div>
           <div className="kpi-value">{pct}%</div>
           <div className="kpi-sub" style={{ marginTop: 10 }}>
-            <div className="progress"><div className="progress-fill" style={{ width: pct + "%" }} /></div>
+            <window.Progress value={pct} showPct={false} />
           </div>
         </div>
-        <div className="kpi">
+        <div className="kpi k-todo">
           <div className="kpi-label">לא התחילו</div>
           <div className="kpi-value">{counts.todo}</div>
         </div>
-        <div className="kpi">
+        <div className="kpi k-doing">
           <div className="kpi-label">בתהליך</div>
           <div className="kpi-value">{counts.doing}</div>
         </div>
-        <div className="kpi">
+        <div className="kpi k-done">
           <div className="kpi-label">הושלמו</div>
           <div className="kpi-value">{counts.done}</div>
         </div>
@@ -908,6 +986,8 @@ function ProjectView({ data, actions, search, cityId, projectId, userEmail }) {
         <window.TaskModal
           task={editTask}
           onSave={(fields) => {
+            if (fields.status === "done" && editTask.status !== "done")
+              window.celebrateDone(null, { ...editTask, ...fields }, project);
             actions.updateTask(city.id, project.id, editTask.id, fields);
             setEditTask(null);
           }}

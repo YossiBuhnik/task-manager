@@ -61,6 +61,125 @@
     return Math.round((dt - today) / 86400000);
   };
 
+  // ─── recurring tasks ────────────────────────────────────────
+  // task.recur = { freq: "day" | "week" | "month" | "year", interval: N,
+  //                weekday: 0–6 (week), month: 0–11 (year), monthDay: 1–31 or -1 = last day }
+  // A recurring task stays one task: completing it moves its due date to the next
+  // occurrence and resets it to "todo" (see rollTask); lastDone keeps the date.
+  const WEEKDAYS = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
+  const MONTHS = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי",
+                  "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
+
+  const parseDay = (s) => {                       // "YYYY-MM-DD" → local midnight
+    const [y, m, d] = String(s).split("-").map(Number);
+    return new Date(y, m - 1, d);
+  };
+  const todayDate = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
+  // Day `md` of month m (overflowing m rolls into the next year); -1 or a day the
+  // month doesn't have → its last day.
+  const monthDate = (y, m, md) => {
+    const last = new Date(y, m + 1, 0).getDate();
+    return new Date(y, m, md === -1 ? last : Math.min(md, last));
+  };
+
+  const firstOnOrAfter = (r, start) => {
+    const d = new Date(start);
+    if (r.freq === "week") {
+      d.setDate(d.getDate() + ((r.weekday - d.getDay() + 7) % 7));
+      return d;
+    }
+    if (r.freq === "month") {
+      const c = monthDate(d.getFullYear(), d.getMonth(), r.monthDay);
+      return c >= d ? c : monthDate(d.getFullYear(), d.getMonth() + 1, r.monthDay);
+    }
+    if (r.freq === "year") {
+      const c = monthDate(d.getFullYear(), r.month, r.monthDay);
+      return c >= d ? c : monthDate(d.getFullYear() + 1, r.month, r.monthDay);
+    }
+    return d;
+  };
+  const stepOccurrence = (r, d) => {
+    const n = Math.max(1, Number(r.interval) || 1);
+    if (r.freq === "week")  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7 * n);
+    if (r.freq === "month") return monthDate(d.getFullYear(), d.getMonth() + n, r.monthDay);
+    if (r.freq === "year")  return monthDate(d.getFullYear() + n, r.month, r.monthDay);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  };
+
+  // The first date on or after `start` that fits the rule — used when a rule is set.
+  const firstRecurDue = (r, start = todayDate()) => toDateInput(firstOnOrAfter(r, start));
+  // The occurrence after this one: later than both the current due date and today,
+  // counted from the current due date so "every 2 weeks" keeps its rhythm.
+  const nextRecurDue = (r, due) => {
+    const today = todayDate();
+    const cur = due ? parseDay(due) : today;
+    const floor = cur > today ? cur : today;
+    let d = firstOnOrAfter(r, cur);
+    for (let i = 0; d <= floor && i < 5000; i++) d = stepOccurrence(r, d);
+    return toDateInput(d);
+  };
+
+  // Rule fields that follow the due date (weekday / day of month / month).
+  const recurFromDue = (r, due) => {
+    if (!r || !due) return r;
+    const d = parseDay(due);
+    const isLast = d.getDate() === new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    const monthDay = r.monthDay === -1 && isLast ? -1 : d.getDate();
+    if (r.freq === "week")  return { ...r, weekday: d.getDay() };
+    if (r.freq === "month") return { ...r, monthDay };
+    if (r.freq === "year")  return { ...r, month: d.getMonth(), monthDay };
+    return r;
+  };
+
+  const recurLabel = (r) => {
+    if (!r) return "";
+    const n = Math.max(1, Number(r.interval) || 1);
+    const day = r.monthDay === -1 ? "ביום האחרון בחודש" : `ב-${r.monthDay} לחודש`;
+    if (r.freq === "day")   return n === 1 ? "כל יום" : `כל ${n} ימים`;
+    if (r.freq === "week")  return `${n === 1 ? "כל שבוע" : n === 2 ? "כל שבועיים" : `כל ${n} שבועות`} ביום ${WEEKDAYS[r.weekday]}`;
+    if (r.freq === "month") return `${n === 1 ? "כל חודש" : n === 2 ? "כל חודשיים" : `כל ${n} חודשים`} ${day}`;
+    if (r.freq === "year")  return `${n === 1 ? "כל שנה" : `כל ${n} שנים`} ${r.monthDay === -1 ? "ביום האחרון של" : `ב-${r.monthDay} ב`}${MONTHS[r.month]}`;
+    return "";
+  };
+
+  // Completing a recurring task rolls it to its next occurrence.
+  const rollTask = (task) => (task.recur && task.status === "done")
+    ? { ...task, status: "todo", due: nextRecurDue(task.recur, task.due), lastDone: toDateInput(new Date()) }
+    : task;
+  // Same over the whole data tree (tasks may be completed outside the app, e.g. by
+  // the Apps Script bridge). Returns the same object when nothing changed.
+  const rollAllRecurring = (data) => {
+    let changed = false;
+    const cities = (data.cities || []).map(c => {
+      let cChanged = false;
+      const projects = (c.projects || []).map(p => {
+        if (!p.tasks.some(t => t.recur && t.status === "done")) return p;
+        cChanged = true;
+        return { ...p, tasks: p.tasks.map(rollTask) };
+      });
+      if (!cChanged) return c;
+      changed = true;
+      return { ...c, projects };
+    });
+    return changed ? { ...data, cities } : data;
+  };
+
+  // RRULE for the Google Calendar link
+  const recurRRule = (r) => {
+    if (!r) return "";
+    const n = Math.max(1, Number(r.interval) || 1);
+    const BYDAY = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+    const parts = {
+      day:   ["FREQ=DAILY"],
+      week:  ["FREQ=WEEKLY", `BYDAY=${BYDAY[r.weekday]}`],
+      month: ["FREQ=MONTHLY", `BYMONTHDAY=${r.monthDay}`],
+      year:  ["FREQ=YEARLY", `BYMONTH=${r.month + 1}`, `BYMONTHDAY=${r.monthDay}`],
+    }[r.freq];
+    if (!parts) return "";
+    if (n > 1) parts.push(`INTERVAL=${n}`);
+    return "RRULE:" + parts.join(";");
+  };
+
   // ─── progress (weighted) ────────────────────────────────────
   const taskProgress = (task) => (STATUS_BY_KEY[task.status]?.weight ?? 0) * 100;
   const tasksProgress = (tasks) => {
@@ -111,6 +230,8 @@
       details,
       ctz: "Asia/Jerusalem",
     });
+    const rrule = recurRRule(task.recur);
+    if (rrule) params.set("recur", rrule);
     const participants = (task.participants || "").trim();
     if (participants) params.set("add", participants.replace(/\s+/g, ""));
     return `https://calendar.google.com/calendar/render?${params.toString()}`;
@@ -286,6 +407,8 @@
     toDateInput, formatHeDate, daysUntil,
     taskProgress, tasksProgress,
     calendarUrl,
+    WEEKDAYS, MONTHS, firstRecurDue, nextRecurDue, recurFromDue, recurLabel,
+    rollTask, rollAllRecurring,
     DEFAULT_AREAS, migrate,
     newArea, newCity, newProject, newTask, standardTasks,
     canSee, todoScore,
