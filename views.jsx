@@ -65,10 +65,16 @@ function dueLabel(due) {
 
 // Small icons beside a task: repeats (tooltip = rule) and linked email threads.
 // One thread links straight to it; several expand the row (onShowAll).
-function TaskBadges({ task, onShowAll }) {
+function TaskBadges({ task, project, onShowAll }) {
   const emails = task.emails || [];
+  const waitingOn = project && task.status !== "done" ? window.TM.blockersOf(task, project.tasks) : [];
   return (
     <>
+      {waitingOn.length > 0 && (
+        <span className="task-badge is-blocked" title={"ממתינה ל: " + waitingOn.map(b => b.title).join(", ")}>
+          {window.Icon.lock}<span>{waitingOn.length}</span>
+        </span>
+      )}
       {task.recur && (
         <span className="task-badge" title={window.TM.recurLabel(task.recur)}>{window.Icon.repeat}</span>
       )}
@@ -117,7 +123,7 @@ function TodoColumn({ group, actions }) {
           const prio = window.TM.PRIORITY_BY_KEY[task.priority] || window.TM.PRIORITIES[1];
           const color = window.TM.areaColorFor(city.id);
           return (
-            <div key={task.id} className="todo-item">
+            <div key={task.id} className={"todo-item" + (window.TM.blockersOf(task, project.tasks).length ? " is-blocked" : "")}>
               <button className="task-check" title="סמן כהושלם"
                 onClick={(e) => {
                   window.celebrateDone(e.currentTarget, task, project);
@@ -127,7 +133,7 @@ function TodoColumn({ group, actions }) {
                 <div className="todo-title" onClick={() => openProject(city, project)}>{task.title}</div>
                 <div className="todo-meta">
                   <span className={"todo-due " + due.cls}>{due.text}</span>
-                  <TaskBadges task={task} onShowAll={() => openProject(city, project)} />
+                  <TaskBadges task={task} project={project} onShowAll={() => openProject(city, project)} />
                   <span className={"prio-tag " + prio.cls}>{prio.label}</span>
                   {task.status === "doing" && <span className="pill pill-doing">בתהליך</span>}
                   <a className="todo-proj" href={"#/project/" + city.id + "/" + project.id}
@@ -751,7 +757,7 @@ function TaskRow({ task, city, project, actions, dragState, dragHandlers, onEdit
             onClick={() => setExpanded(v => !v)}
             style={{ cursor: "pointer" }}
           >{task.title}</span>
-          <TaskBadges task={task} onShowAll={() => setExpanded(true)} />
+          <TaskBadges task={task} project={project} onShowAll={() => setExpanded(true)} />
         </div>
 
         <div className="task-status-cell">
@@ -823,6 +829,13 @@ function ProjectView({ data, actions, search, cityId, projectId, userEmail }) {
   const [filterStatus, setFilterStatus] = vUseState("all");
   const [filterAssignee, setFilterAssignee] = vUseState("all");
   const [localSearch, setLocalSearch] = vUseState("");
+  const [view, setViewState] = vUseState(() => {
+    try { return localStorage.getItem("tm_project_view") || "list"; } catch (e) { return "list"; }
+  });
+  const setView = (v) => {
+    setViewState(v);
+    try { localStorage.setItem("tm_project_view", v); } catch (e) {}
+  };
 
   if (!city || !project) return <NoAccess title="פרויקט לא נמצא" />;
   const area = window.areaOf(data, city);
@@ -902,7 +915,7 @@ function ProjectView({ data, actions, search, cityId, projectId, userEmail }) {
         </div>
       </div>
 
-      <div className="kpis" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+      <div className="kpis">
         <div className="kpi k-progress">
           <div className="kpi-label">התקדמות</div>
           <div className="kpi-value">{pct}%</div>
@@ -925,6 +938,17 @@ function ProjectView({ data, actions, search, cityId, projectId, userEmail }) {
       </div>
 
       <div className="toolbar">
+        <div className="seg" role="tablist">
+          <button type="button" role="tab" aria-selected={view === "list"}
+            className={view === "list" ? "is-active" : ""} onClick={() => setView("list")}>
+            {window.Icon.list}<span>רשימה</span>
+          </button>
+          <button type="button" role="tab" aria-selected={view === "map"}
+            className={view === "map" ? "is-active" : ""} onClick={() => setView("map")}>
+            {window.Icon.flow}<span>מפת משימות</span>
+          </button>
+        </div>
+        {view === "list" && <>
         <input
           className="search-input"
           placeholder="חיפוש במשימות…"
@@ -945,8 +969,12 @@ function ProjectView({ data, actions, search, cityId, projectId, userEmail }) {
         <span style={{ color: "var(--ink-3)", fontSize: 13 }}>
           {visibleIndexes.length} מתוך {project.tasks.length}
         </span>
+        </>}
       </div>
 
+      {view === "map" ? (
+        <window.TaskMap project={project} city={city} actions={actions} onEdit={setEditTask} />
+      ) : (
       <div className="tasks">
         {project.tasks.length === 0 ? (
           <div className="tasks-empty">
@@ -972,9 +1000,11 @@ function ProjectView({ data, actions, search, cityId, projectId, userEmail }) {
           })
         )}
       </div>
+      )}
 
       {showAdd && (
         <window.TaskModal
+          projectTasks={project.tasks}
           onSave={(fields) => {
             actions.addTask(city.id, project.id, fields);
             setShowAdd(false);
@@ -985,6 +1015,7 @@ function ProjectView({ data, actions, search, cityId, projectId, userEmail }) {
       {editTask && (
         <window.TaskModal
           task={editTask}
+          projectTasks={project.tasks}
           onSave={(fields) => {
             if (fields.status === "done" && editTask.status !== "done")
               window.celebrateDone(null, { ...editTask, ...fields }, project);

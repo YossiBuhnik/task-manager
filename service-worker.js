@@ -17,6 +17,7 @@ const SHELL = [
   "./store.jsx",
   "./components.jsx",
   "./views.jsx",
+  "./taskmap.jsx",
   "./app.jsx",
   "./tweaks-panel.jsx",
   "./cloud.jsx",

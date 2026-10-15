@@ -21,6 +21,8 @@ const Icon = {
   lock:    <svg className="ico" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>,
   repeat:  <svg className="ico" viewBox="0 0 24 24"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 013-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 01-3 3H3"/></svg>,
   mail:    <svg className="ico" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>,
+  list:    <svg className="ico" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>,
+  flow:    <svg className="ico" viewBox="0 0 24 24"><rect x="15" y="3" width="6" height="6" rx="1.5"/><rect x="3" y="15" width="6" height="6" rx="1.5"/><rect x="3" y="3" width="6" height="6" rx="1.5"/><path d="M15 6H9M18 9v3a3 3 0 01-3 3H9"/></svg>,
   x:       <svg className="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>,
   users:   <svg className="ico" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M14.5 14.5c1-.3 1.8-.5 2.5-.5 2.8 0 5 2.2 5 5"/></svg>,
 };
@@ -99,7 +101,12 @@ function confettiBurst(x, y, { count = 18, spread = 70 } = {}) {
   setTimeout(() => layer.remove(), 1200);
 }
 
-function toast(title, sub, { big = false } = {}) {
+const TOAST_ICON = {
+  check: '<path d="M5 12l5 5L20 7"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/>',
+};
+
+function toast(title, sub, { big = false, info = false } = {}) {
   let host = document.querySelector(".toast-host");
   if (!host) {
     host = document.createElement("div");
@@ -109,8 +116,8 @@ function toast(title, sub, { big = false } = {}) {
   }
   while (host.children.length >= 3) host.firstChild.remove();
   const el = document.createElement("div");
-  el.className = "toast" + (big ? " is-big" : "");
-  el.innerHTML = '<span class="toast-icon"><svg class="ico" viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg></span>'
+  el.className = "toast" + (big ? " is-big" : "") + (info ? " is-info" : "");
+  el.innerHTML = '<span class="toast-icon"><svg class="ico" viewBox="0 0 24 24">' + TOAST_ICON[info ? "lock" : "check"] + '</svg></span>'
     + '<span class="toast-body"><strong></strong><span></span></span>';
   el.querySelector("strong").textContent = title;          // user text → textContent only
   el.querySelector(".toast-body span").textContent = sub || "";
@@ -458,8 +465,44 @@ function EmailLinksField({ emails, onChange, draft, onDraftChange, error }) {
   );
 }
 
+// ─── Prerequisites picker (inside the task modal) ───────────
+// Only tasks of the same project; ones that would create a loop aren't offered.
+function DependsField({ taskId, tasks, value, onChange }) {
+  const TM = window.TM;
+  const byId = new Map(tasks.map(t => [t.id, t]));
+  const chosen = value.filter(id => byId.has(id));
+  const options = tasks.filter(t => t.id !== taskId && !chosen.includes(t.id)
+    && !(taskId && TM.wouldCycle(tasks, taskId, t.id)));
+  if (!chosen.length && !options.length) return null;
+  return (
+    <div className="field">
+      <label>תלויה במשימות <span style={{ color: "var(--ink-3)", fontWeight: 400 }}>(מה צריך להסתיים לפני שאפשר להתחיל)</span></label>
+      {chosen.length > 0 && (
+        <div className="dep-chips">
+          {chosen.map(id => {
+            const t = byId.get(id);
+            return (
+              <span key={id} className={"dep-chip" + (t.status === "done" ? " is-done" : "")}>
+                {t.status === "done" ? Icon.check : Icon.lock}
+                <span>{t.title}</span>
+                <button type="button" title="הסר תלות" onClick={() => onChange(chosen.filter(x => x !== id))}>{Icon.x}</button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+      {options.length > 0 && (
+        <select value="" onChange={(e) => e.target.value && onChange([...chosen, e.target.value])}>
+          <option value="">+ הוסף משימה שצריכה להסתיים קודם…</option>
+          {options.map(t => <option key={t.id} value={t.id}>{t.title}{t.status === "done" ? " ✓" : ""}</option>)}
+        </select>
+      )}
+    </div>
+  );
+}
+
 // ─── Task modal ─────────────────────────────────────────────
-function TaskModal({ task, onSave, onClose, onDelete }) {
+function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete }) {
   const [t, setT] = useState({
     title: task?.title || "",
     status: task?.status || "todo",
@@ -472,6 +515,7 @@ function TaskModal({ task, onSave, onClose, onDelete }) {
     notes: task?.notes || "",
     recur: task?.recur || null,
     emails: task?.emails || [],
+    dependsOn: task?.dependsOn || [],
   });
   const [emailDraft, setEmailDraft] = useState({ url: "", title: "" });
   const [emailError, setEmailError] = useState("");
@@ -573,6 +617,8 @@ function TaskModal({ task, onSave, onClose, onDelete }) {
       )}
       <RecurField recur={t.recur} due={t.due}
         onChange={(recur, due) => setT(prev => ({ ...prev, recur, due }))} />
+      <DependsField taskId={task?.id} tasks={projectTasks} value={t.dependsOn}
+        onChange={(v) => set("dependsOn", v)} />
       <div className="field">
         <label>אחראי</label>
         <input value={t.assignee} onChange={(e) => set("assignee", e.target.value)}
@@ -663,6 +709,7 @@ function useDragList(onReorder) {
 
 Object.assign(window, {
   Icon, BrandGlyph, Progress, StatusPill, CollapseToggle, celebrateDone,
+  toastInfo: (title, sub) => toast(title, sub, { info: true }),
   Modal, AreaModal, CityModal, VisibilityPicker, ProjectModal, TaskModal, ConfirmModal,
   useDragList,
 });

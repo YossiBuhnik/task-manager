@@ -7,12 +7,12 @@
     "סיור עם נציגי העירייה הרלוונטים",
     "פתיחת בקשה לתיאום הנדסי",
     "הסדרי תנועה",
-    "התאמה תוכנית עבודה לשטח",
     'בניית לו"ז',
     "קבלת/בניית אומדנים לפרויקט",
     "סיור עם הקבלן בשטח",
     "קידום רישיון",
     'בקשה לפתיחת פק"ע',
+    "הוצאת צו התחלת עבודה",
   ];
 
   const STATUSES = [
@@ -180,6 +180,83 @@
     return "RRULE:" + parts.join(";");
   };
 
+  // ─── task dependencies (within one project) ────────────────
+  // task.dependsOn = [taskId, …] — tasks that must be done first.
+  const depsOf = (task, byId) => (task.dependsOn || []).filter(id => byId.has(id) && id !== task.id);
+  const indexTasks = (tasks) => new Map(tasks.map(t => [t.id, t]));
+
+  // Open prerequisites still holding this task back.
+  const blockersOf = (task, tasks) => {
+    const byId = indexTasks(tasks);
+    return depsOf(task, byId).map(id => byId.get(id)).filter(t => t.status !== "done");
+  };
+  // "done" | "doing" | "ready" (nothing blocking) | "blocked"
+  const taskState = (task, tasks) => {
+    if (task.status === "done") return "done";
+    if (blockersOf(task, tasks).length) return "blocked";
+    return task.status === "doing" ? "doing" : "ready";
+  };
+  // Would making `taskId` depend on `depId` close a loop? (depId already depends on taskId)
+  const wouldCycle = (tasks, taskId, depId) => {
+    if (taskId === depId) return true;
+    const byId = indexTasks(tasks);
+    const seen = new Set();
+    const stack = [depId];
+    while (stack.length) {
+      const id = stack.pop();
+      if (id === taskId) return true;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const t = byId.get(id);
+      if (t) stack.push(...depsOf(t, byId));
+    }
+    return false;
+  };
+
+  // Layout for the task map: columns by stage (longest chain of prerequisites),
+  // ordered to keep lines from crossing; tasks with no links at all go aside.
+  const dependencyLayout = (tasks) => {
+    const byId = indexTasks(tasks);
+    const edges = [];
+    const linked = new Set();
+    tasks.forEach(t => depsOf(t, byId).forEach(d => {
+      edges.push({ from: d, to: t.id });
+      linked.add(d); linked.add(t.id);
+    }));
+    const level = new Map();
+    const levelOf = (t, trail = new Set()) => {
+      if (level.has(t.id)) return level.get(t.id);
+      if (trail.has(t.id)) return 0;                     // cycle guard for bad data
+      trail.add(t.id);
+      const deps = depsOf(t, byId);
+      const lv = deps.length ? 1 + Math.max(...deps.map(d => levelOf(byId.get(d), trail))) : 0;
+      level.set(t.id, lv);
+      return lv;
+    };
+    const graphTasks = tasks.filter(t => linked.has(t.id));
+    graphTasks.forEach(t => levelOf(t));
+    const columns = [];
+    graphTasks.forEach(t => (columns[level.get(t.id)] ||= []).push(t.id));
+    // Barycenter passes: sit each task near the tasks it connects to.
+    const order = new Map();
+    const reindex = () => columns.forEach(col => col.forEach((id, i) => order.set(id, i)));
+    reindex();
+    const parentsOf = (id) => edges.filter(e => e.to === id).map(e => e.from);
+    const childrenOf = (id) => edges.filter(e => e.from === id).map(e => e.to);
+    const avg = (ids, fallback) => ids.length ? ids.reduce((s, x) => s + order.get(x), 0) / ids.length : fallback;
+    for (let pass = 0; pass < 4; pass++) {
+      for (let c = 1; c < columns.length; c++) {
+        columns[c].sort((a, b) => avg(parentsOf(a), order.get(a)) - avg(parentsOf(b), order.get(b)));
+        reindex();
+      }
+      for (let c = columns.length - 2; c >= 0; c--) {
+        columns[c].sort((a, b) => avg(childrenOf(a), order.get(a)) - avg(childrenOf(b), order.get(b)));
+        reindex();
+      }
+    }
+    return { columns, edges, isolated: tasks.filter(t => !linked.has(t.id)).map(t => t.id) };
+  };
+
   // ─── progress (weighted) ────────────────────────────────────
   const taskProgress = (task) => (STATUS_BY_KEY[task.status]?.weight ?? 0) * 100;
   const tasksProgress = (tasks) => {
@@ -246,10 +323,40 @@
     title, status, due, assignee, priority, notes,
   });
 
+  // How the standard tasks depend on each other (index → prerequisite indexes)
+  // and where they sit on the task map — both copied from Yossi's reference
+  // project "123" (15.10.2026).
+  const STANDARD_DEPS = {
+    1: [0],             // סיור עם נציגי העירייה ← סיור בשטח
+    2: [1, 0],          // תיאום הנדסי ← סיור עם העירייה, סיור בשטח
+    3: [1],             // הסדרי תנועה ← סיור עם העירייה
+    4: [0],             // בניית לו"ז ← סיור בשטח
+    5: [0, 4, 3, 6],    // אומדנים ← סיור בשטח, לו"ז, הסדרי תנועה, סיור עם הקבלן
+    6: [0],             // סיור עם הקבלן ← סיור בשטח
+    7: [3],             // קידום רישיון ← הסדרי תנועה
+    8: [3, 5],          // פק"ע ← הסדרי תנועה, אומדנים
+    9: [7, 2, 8],       // צו התחלת עבודה ← רישיון, תיאום הנדסי, פק"ע
+  };
+  const STANDARD_POS = [
+    { x: 492, y: 16 }, { x: 205, y: 121 }, { x: 25, y: 359 }, { x: 464, y: 254 }, { x: 991, y: 126 },
+    { x: 784, y: 315 }, { x: 577, y: 142 }, { x: 259, y: 369 }, { x: 535, y: 438 }, { x: 418, y: 620 },
+  ];
+  // Link (and place on the map) whichever standard tasks are present in a list,
+  // matched by title. Other tasks are left as they are.
+  const linkStandardTasks = (tasks) => {
+    const idOfStd = (i) => tasks.find(t => t.title === STANDARD_TASKS[i])?.id;
+    return tasks.map(t => {
+      const i = STANDARD_TASKS.indexOf(t.title);
+      if (i < 0) return t;
+      const deps = (STANDARD_DEPS[i] || []).map(idOfStd).filter(Boolean);
+      return { ...t, dependsOn: deps, pos: { ...STANDARD_POS[i] } };
+    });
+  };
+
   const mkProject = (name, summary, tasks) => ({
     id: uid("p"),
     name, summary,
-    tasks,
+    tasks: linkStandardTasks(tasks),
   });
 
   const mkCity = (areaId, name, projects) => ({
@@ -368,7 +475,7 @@
     notes: "",
     createdAt: toDateInput(new Date()),
   });
-  const standardTasks = () => STANDARD_TASKS.map(t => newTask(t));
+  const standardTasks = () => linkStandardTasks(STANDARD_TASKS.map(t => newTask(t)));
 
   // ─── TODO ranking ───────────────────────────────────────────
   // Higher score = more urgent. Days overdue count 1:1; priority shifts a task
@@ -407,6 +514,7 @@
     toDateInput, formatHeDate, daysUntil,
     taskProgress, tasksProgress,
     calendarUrl,
+    blockersOf, taskState, wouldCycle, dependencyLayout, linkStandardTasks,
     WEEKDAYS, MONTHS, firstRecurDue, nextRecurDue, recurFromDue, recurLabel,
     rollTask, rollAllRecurring,
     DEFAULT_AREAS, migrate,

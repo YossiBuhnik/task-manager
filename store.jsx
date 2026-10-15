@@ -151,7 +151,11 @@ function useStore(cloud) {
       cities: d.cities.map(c => c.id === cityId ? {
         ...c,
         projects: c.projects.map(p => p.id === projectId ? {
-          ...p, tasks: p.tasks.filter(t => t.id !== taskId),
+          ...p,
+          // …and drop it from other tasks' prerequisites
+          tasks: p.tasks.filter(t => t.id !== taskId).map(t =>
+            (t.dependsOn || []).includes(taskId)
+              ? { ...t, dependsOn: t.dependsOn.filter(id => id !== taskId) } : t),
         } : p),
       } : c),
     })),

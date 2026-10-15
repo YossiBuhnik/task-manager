@@ -1451,3 +1451,383 @@ a.task-detail.is-link .ico { color: var(--accent); }
   .progress-fill, .progress-fill::after, .toast, .toast-icon { animation: none !important; }
   .card:hover, .kpi:hover, .btn-primary:hover { transform: none; }
 }
+
+/* ─── Segmented control (list / map) ─── */
+.seg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+.seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background .15s, color .15s, box-shadow .15s;
+}
+.seg button:hover { color: var(--ink); background: var(--bg-2); }
+.seg button.is-active {
+  background: linear-gradient(135deg, var(--accent), var(--accent-end));
+  color: #fff;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* ─── Prerequisites in the task modal / list ─── */
+.dep-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.dep-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 4px 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.dep-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dep-chip .ico { width: 13px; height: 13px; flex-basis: 13px; color: var(--ink-3); }
+.dep-chip.is-done { background: var(--status-done-bg); color: var(--status-done-ink); }
+.dep-chip.is-done .ico { color: var(--success); }
+.dep-chip button {
+  display: grid; place-items: center;
+  width: 20px; height: 20px;
+  border: 0; border-radius: 50%;
+  background: transparent; color: inherit; padding: 0;
+}
+.dep-chip button:hover { background: rgba(0, 0, 0, .07); }
+.task-badge.is-blocked { color: var(--ink-3); background: var(--bg-2); padding: 2px 6px; border-radius: 999px; }
+
+/* ─── Task map ─── */
+.taskmap { display: flex; flex-direction: column; gap: 14px; }
+.map-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.map-summary-spacer { flex: 1; }
+.map-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.map-stat b { font-size: 14px; font-variant-numeric: tabular-nums; }
+.map-stat::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--dot); }
+.map-stat.is-ready   { --dot: var(--accent); }
+.map-stat.is-doing   { --dot: #f59e0b; }
+.map-stat.is-blocked { --dot: #a3aac0; }
+.map-stat.is-done    { --dot: var(--success-2); }
+
+.map-canvas {
+  position: relative;
+  overflow-x: auto;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+  background:
+    radial-gradient(circle, #d6dcec 1px, transparent 1.3px) 0 0 / 22px 22px,
+    linear-gradient(180deg, #fbfcff, #f6f8fd);
+  scrollbar-width: thin;
+}
+.map-board {
+  position: relative;
+  min-width: 100%;
+}
+.map-board .map-node { position: absolute; }
+.map-lines { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; z-index: 0; }
+
+
+.map-node {
+  --ring: var(--line);
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 216px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--ring);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: width .45s cubic-bezier(.2,.8,.2,1), padding .45s cubic-bezier(.2,.8,.2,1),
+              border-radius .45s, background .35s, opacity .25s, transform .2s, box-shadow .2s, filter .25s;
+}
+.map-node:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.map-node-body { min-width: 0; flex: 1; }
+.map-node-title { font-size: 13.5px; font-weight: 600; line-height: 1.35; color: var(--ink); overflow-wrap: anywhere; }
+.map-node-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 7px; }
+
+.map-check {
+  flex: 0 0 24px;
+  width: 24px; height: 24px;
+  margin-top: -1px;
+  border-radius: 50%;
+  border: 2px solid var(--line-2);
+  background: var(--surface);
+  display: grid; place-items: center;
+  padding: 0;
+  color: #fff;
+  position: relative;
+  transition: background .2s, border-color .2s, transform .12s;
+}
+.map-check:hover { transform: scale(1.1); }
+.map-check .ico { width: 13px; height: 13px; flex-basis: 13px; stroke-width: 3; }
+
+.map-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.map-tag .ico { width: 11px; height: 11px; flex-basis: 11px; }
+.map-tag.is-ready   { background: var(--accent-2); color: var(--accent-ink); }
+.map-tag.is-doing   { background: var(--status-doing-bg); color: var(--status-doing-ink); }
+.map-tag.is-blocked { background: var(--bg-2); color: var(--ink-3); }
+.map-due { font-size: 11.5px; color: var(--ink-3); font-weight: 500; }
+.map-due.is-soon { color: #b45309; }
+.map-due.is-overdue { color: var(--prio-high); font-weight: 700; }
+.map-avatar {
+  margin-inline-start: auto;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 10px; font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+}
+
+/* Ready: glowing, invites you to start */
+.map-node.is-ready {
+  --ring: color-mix(in srgb, var(--accent) 45%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent), 0 8px 22px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.map-node.is-ready .map-check { border-color: var(--accent); }
+.map-node.is-ready .map-check::after {
+  content: ""; position: absolute; inset: -6px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  animation: mapPulse 2s ease-out infinite;
+}
+@keyframes mapPulse { from { transform: scale(.7); opacity: 1; } to { transform: scale(1.35); opacity: 0; } }
+
+/* Doing: amber with a spinning ring */
+.map-node.is-doing {
+  --ring: color-mix(in srgb, #f59e0b 50%, var(--line));
+  background: linear-gradient(160deg, #fffaf0, var(--surface) 60%);
+}
+.map-node.is-doing .map-check { border-color: #fcd34d; }
+.map-node.is-doing .map-check::after {
+  content: ""; position: absolute; inset: -2px; border-radius: 50%;
+  background: conic-gradient(#f59e0b 0 30%, transparent 30% 100%);
+  -webkit-mask: radial-gradient(circle, transparent 9px, #000 9.5px);
+          mask: radial-gradient(circle, transparent 9px, #000 9.5px);
+  animation: mapSpin 1.4s linear infinite;
+}
+@keyframes mapSpin { to { transform: rotate(360deg); } }
+
+/* Blocked: quiet until its prerequisites are done */
+.map-node.is-blocked {
+  background: color-mix(in srgb, var(--surface) 70%, #eef0f7);
+  border-style: dashed;
+  --ring: var(--line-2);
+  box-shadow: none;
+}
+.map-node.is-blocked .map-node-title { color: var(--ink-3); }
+.map-node.is-blocked .map-check { background: var(--bg-2); border-color: transparent; color: var(--ink-3); cursor: not-allowed; }
+.map-node.is-blocked .map-check .ico { width: 12px; height: 12px; stroke-width: 2.2; }
+
+/* Done: shrinks into a green pill */
+.map-node.is-done {
+  width: 150px;
+  padding: 6px 12px 6px 8px;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--status-done-bg);
+  --ring: color-mix(in srgb, var(--success) 30%, transparent);
+  box-shadow: none;
+}
+.map-node.is-done .map-check { flex-basis: 20px; width: 20px; height: 20px; background: linear-gradient(135deg, var(--success-2), var(--success)); border-color: transparent; }
+.map-node.is-done .map-node-title {
+  font-size: 12px; font-weight: 600;
+  color: var(--status-done-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Hover chain */
+.map-node.is-dim { opacity: .28; filter: saturate(.5); }
+.map-node.is-lit:not(:hover) { box-shadow: var(--shadow-md); }
+
+/* Just became startable */
+.map-node.just-unlocked { animation: mapUnlock 1.4s cubic-bezier(.2,.8,.2,1); }
+@keyframes mapUnlock {
+  0%   { transform: scale(.94); box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 50%, transparent); }
+  35%  { transform: scale(1.04); box-shadow: 0 0 0 10px color-mix(in srgb, var(--accent) 18%, transparent); }
+  100% { transform: scale(1); }
+}
+
+/* Lines */
+.map-edge path { fill: none; stroke-linecap: round; transition: opacity .25s, stroke-width .2s; }
+.map-edge-base { stroke-width: 2.25; }
+.map-edge-flow { stroke-width: 2.25; stroke-dasharray: 7 9; opacity: 0; }
+.map-edge circle { transition: opacity .25s; }
+.map-edge-start { fill: var(--edge); }
+.map-edge-end { fill: var(--surface); stroke: var(--edge); stroke-width: 2; }
+.map-edge.is-done    { --edge: color-mix(in srgb, var(--success-2) 70%, transparent); }
+.map-edge.is-done .map-edge-base { stroke: var(--edge); }
+.map-edge.is-live    { --edge: var(--accent); }
+.map-edge.is-live .map-edge-base { stroke: color-mix(in srgb, var(--accent) 22%, transparent); }
+.map-edge.is-live .map-edge-flow { stroke: var(--accent); opacity: 1; animation: mapFlow 1s linear infinite; }
+.map-edge.is-waiting { --edge: #b9c0d3; }
+.map-edge.is-waiting .map-edge-base { stroke: var(--edge); stroke-dasharray: 3 6; }
+.map-edge.is-dim { opacity: .12; }
+.map-edge.is-lit .map-edge-base, .map-edge.is-lit .map-edge-flow { stroke-width: 3; }
+@keyframes mapFlow { to { stroke-dashoffset: -32; } }
+
+/* No links yet / unlinked tasks */
+.todo-item.is-blocked .todo-title { color: var(--ink-3); }
+.seg button:focus { outline: none; }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.map-tray {
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+}
+.map-tray-title { font-size: 12px; font-weight: 700; color: var(--ink-3); margin-bottom: 10px; letter-spacing: .03em; }
+.map-tray-items { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px 22px; padding: 2px 8px; }
+
+/* Info toast (e.g. "finish X first") */
+.toast.is-info { background: #1e2340; }
+.toast.is-info .toast-icon { background: linear-gradient(135deg, var(--accent), var(--accent-end)); }
+
+@media (max-width: 640px) {
+  .map-node { width: 196px; }
+  .map-node.is-done { width: 140px; }
+  .toolbar .seg { width: 100%; }
+  .toolbar .seg button { flex: 1; justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-edge-flow, .map-node .map-check::after, .map-node.just-unlocked { animation: none !important; }
+}
+
+/* ─── Task map: editing (ports, linking, moving) ─── */
+.map-node { user-select: none; touch-action: none; }
+.map-node.is-moving {
+  z-index: 5;
+  cursor: grabbing;
+  transform: scale(1.03);
+  box-shadow: 0 18px 40px rgba(16, 24, 64, .18);
+  transition: width .45s, padding .45s, border-radius .45s, background .35s, box-shadow .2s, transform .2s;
+}
+.map-tray .map-node { position: relative; }
+.map-node.is-dragging {
+  z-index: 60;
+  transition: none;
+  pointer-events: none;
+  box-shadow: 0 18px 40px rgba(16, 24, 64, .22);
+  rotate: -2deg;
+}
+.map-canvas.is-drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -6px;
+  background-color: var(--accent-2);
+}
+
+/* Connection points: in (top) / out (bottom) */
+.map-port {
+  position: absolute;
+  left: 50%;
+  width: 14px; height: 14px;
+  margin-left: -7px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid color-mix(in srgb, var(--accent) 55%, var(--line-2));
+  box-shadow: 0 1px 3px rgba(16, 24, 64, .15);
+  cursor: crosshair;
+  z-index: 2;
+  touch-action: none;
+  opacity: .55;
+  transition: transform .15s, opacity .15s, background .15s, border-color .15s;
+}
+.map-port.is-in  { top: -8px; }
+.map-port.is-out { bottom: -8px; }
+.map-node:hover .map-port, .map-canvas.is-linking .map-port { opacity: 1; }
+.map-port:hover { transform: scale(1.35); background: var(--accent); border-color: var(--accent); opacity: 1; }
+.map-node.is-done .map-port { width: 12px; height: 12px; margin-left: -6px; }
+.map-node.is-done .map-port.is-in { top: -7px; }
+.map-node.is-done .map-port.is-out { bottom: -7px; }
+
+/* While drawing a link */
+.map-canvas.is-linking { cursor: crosshair; }
+.map-node.is-link-source { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent), var(--shadow-md); }
+.map-node.is-target-ok:hover {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success-2) 55%, transparent), var(--shadow-md);
+  transform: translateY(-2px);
+}
+.map-node.is-target-bad { opacity: .35; filter: grayscale(.6); }
+.map-draft-layer { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 70; overflow: visible; }
+.map-draft {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-dasharray: 6 6;
+  stroke-linecap: round;
+  animation: mapFlow 1s linear infinite;
+}
+
+/* Lines: wide invisible hit area, selected state, unlink button */
+.map-edge-hit { stroke: transparent; stroke-width: 16; fill: none; pointer-events: stroke; cursor: pointer; }
+.map-edge:hover .map-edge-base { stroke-width: 3.25; }
+.map-edge.is-selected .map-edge-base { stroke: var(--prio-high); stroke-width: 3.25; stroke-dasharray: none; }
+.map-edge.is-selected .map-edge-flow { opacity: 0; }
+.map-edge.is-selected circle { --edge: var(--prio-high); }
+.map-unlink {
+  position: absolute;
+  z-index: 6;
+  width: 28px; height: 28px;
+  translate: -50% -50%;
+  display: grid; place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--prio-high);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(179, 38, 30, .35);
+  animation: toastPop .25s cubic-bezier(.3,1.6,.5,1);
+}
+.map-unlink .ico { width: 14px; height: 14px; stroke-width: 2.6; }
+
+.map-hint {
+  position: absolute;
+  inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  text-align: center;
+  color: var(--ink-3);
+  font-size: 13.5px;
+  pointer-events: none;
+}
+.map-hint strong { color: var(--ink); font-size: 15px; }
+.map-help { font-size: 12px; color: var(--ink-3); margin-top: -6px; }
+.map-help-dot {
+  display: inline-block;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  vertical-align: -1px;
+}
