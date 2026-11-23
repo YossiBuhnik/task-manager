@@ -2200,3 +2200,4 @@ html[data-theme="dark"] .todo-proj, html[data-theme="dark"] .area-pill { backgro
 .tb-grid.is-wide { grid-template-columns: minmax(0, 1fr); }
 .tb-grid.is-wide .tb-aside { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .ttable .tt-sub { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html[data-theme="dark"] .dur-preset.is-on { color: var(--accent); }
