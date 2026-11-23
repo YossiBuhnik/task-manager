@@ -293,6 +293,23 @@ function useStore(cloud) {
       } : c),
     })),
 
+    moveTask: (taskId, targetProjectId) => update(d => {
+      const current = findTaskInData(d, taskId);
+      if (!current || !guardEdit(current)) return d;
+      if (isCloud && !window.TM.isYossi(userEmail())) {
+        console.warn("move blocked: admin only", taskId);
+        return d;
+      }
+      const plan = window.TM.moveTaskInState(d, taskId, targetProjectId);
+      if (!plan.ok || !plan.moved) return plan.ok ? plan.state : d;
+      const c = cloudRef.current;
+      if (c && c.writesEnabled) {
+        if (c.readLegacyBlob && c.moveTaskDoc) c.moveTaskDoc(taskId, targetProjectId);
+        else c.updateTaskDoc(current.id, plan.fields, current.version);
+      }
+      return plan.state;
+    }),
+
     approveTask: (cityIdOrId, projectId, taskId) => update(d => {
       const id = taskId || cityIdOrId;
       const current = findTaskInData(d, id);

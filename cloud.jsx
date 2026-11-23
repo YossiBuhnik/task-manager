@@ -268,6 +268,12 @@ function useCloud() {
   const createTask = cUseCallback((task) => runTaskTx(task.id, { type: "create", task }), [mode]);
   const updateTaskDoc = cUseCallback((taskId, fields, expectedVersion) =>
     runTaskTx(taskId, { type: "update", fields, expectedVersion }), [mode]);
+  const moveTaskDoc = cUseCallback((taskId, targetProjectId) => {
+    if (readLegacy()) {
+      return runLegacyTx({ kind: "task", type: "move", taskId, targetProjectId });
+    }
+    return { ok: false, error: { code: "use-update" } };
+  }, [mode]);
   const deleteTaskDoc = cUseCallback((taskId, expectedVersion) =>
     runTaskTx(taskId, { type: "delete", expectedVersion }), [mode]);
 
@@ -299,7 +305,7 @@ function useCloud() {
     mode, user, data, save, status, signIn, signOut,
     readLegacyBlob: readLegacy(),
     writesEnabled,
-    createTask, updateTaskDoc, deleteTaskDoc, updateTeamState,
+    createTask, updateTaskDoc, moveTaskDoc, deleteTaskDoc, updateTeamState,
   };
 }
 

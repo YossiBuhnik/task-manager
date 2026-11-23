@@ -154,13 +154,10 @@ const URGENT_BUCKETS = { overdue: 1, today: 1, soon: 1 };
 const isOpenRow = (r) => r.task.status !== "done";
 const isBoardRow = (r) => !r.task.awaitingReview;
 
-// "Waiting on others": open board tasks handed to someone else.
-// The contract defers listWaitingOnOthers; until Ido adds it, a task counts
-// when it has an assignee who is not the signed-in user. [לאימות]
-function isWaitingRow(r, me) {
-  const a = (r.task.assignee || "").trim();
-  if (!a || !isOpenRow(r) || !isBoardRow(r)) return false;
-  return !(me && a.includes(me)) && !a.includes("יוסי");
+// "Waiting on others": open, and waitingOn is set, or status is "waiting".
+// Assignee and bot source do not count.
+function isWaitingRow(r) {
+  return window.TM.isWaitingOnOthers(r.task);
 }
 
 function boardDue(task) {

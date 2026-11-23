@@ -342,6 +342,18 @@
     title, status, due, assignee, priority, notes,
   });
 
+  // Local demo inbox only. resetSeed refuses to write this when signed in.
+  const demoBot = (title, source, durationMin, durationMax, durationUnit, priority) => ({
+    ...mkTask(title, "todo", offset(3), "", priority),
+    source,
+    awaitingReview: true,
+    createdBy: source,
+    durationMin,
+    durationMax,
+    durationUnit,
+    duration: durationMin,
+  });
+
   // How the standard tasks depend on each other (index → prerequisite indexes)
   // and where they sit on the task map — both copied from Yossi's reference
   // project "123" (15.10.2026).
@@ -408,6 +420,10 @@
           mkTask("העברת הדוח לרו\"ח",                    "todo",  offset(10), "דנה לוי",   "high"),
           mkTask("חידוש מנוי תוכנות",                      "todo",  offset(-6), "דנה לוי",   "mid"),
           mkTask("סידור ארכיון",                           "todo",  "",         "",          "low"),
+          demoBot("אישור חשבון מספק", "michal-mail", 15, 30, "min", "high"),
+          demoBot("הערת פיקוח באתר", "ron-site", 60, 120, "hour", "mid"),
+          demoBot("תיאום מול ראש המטה", "shaked", 90, 120, "hour", "high"),
+          demoBot("סיכום סיור", "noga-tour", 30, 45, "min", "mid"),
         ]),
         mkProject("חידוש ביטוחים", "ביטוח חבות מקצועית + מבנה", [
           mkTask("השוואת הצעות מחיר מ-3 חברות", "doing", offset(4),  "רונית שמש", "high"),
@@ -490,6 +506,7 @@
     duration: 60,
     participants: "",
     assignee: "",
+    waitingOn: "",
     priority: "mid",
     notes: "",
     createdAt: toDateInput(new Date()),
@@ -560,6 +577,21 @@
 
   const listInbox = (tasks) =>
     (tasks || []).filter((t) => t && t.awaitingReview && isOpenTask(t));
+
+  // Open task with an explicit waitingOn party, or status "waiting".
+  // Assignee and source do not count.
+  const hasWaitingOn = (task) => {
+    const w = task && task.waitingOn;
+    if (w == null || w === "") return false;
+    if (Array.isArray(w)) return w.some((x) => String(x || "").trim());
+    if (typeof w === "object") return !!(w.name || w.person || w.party);
+    return String(w).trim().length > 0;
+  };
+  const isWaitingOnOthers = (task) => {
+    if (!task || task.status === "done") return false;
+    if (task.status === "waiting") return true;
+    return hasWaitingOn(task);
+  };
 
   const isValidDuration = (min, max) => {
     const a = typeof min === "number" ? min : Number(min);
@@ -827,6 +859,58 @@
     return { ...base, areas, cities };
   };
 
+  const findProjectLocation = (state, projectId) => {
+    for (const c of (state && state.cities) || []) {
+      for (const p of c.projects || []) {
+        if (p.id === projectId) return { city: c, project: p };
+      }
+    }
+    return null;
+  };
+
+  // Move keeps the task id and existing fields. activity records the move
+  // without titles. Same project is a no-op.
+  const moveTaskInState = (state, taskId, targetProjectId, now) => {
+    const current = cloneTeamState(state || { areas: [], cities: [] });
+    const loc = findTaskLocation(current, taskId);
+    const dest = findProjectLocation(current, targetProjectId);
+    if (!loc || !dest) return { ok: false, error: { code: "not_found" } };
+    if (loc.project.id === dest.project.id) {
+      return { ok: true, state: current, task: loc.task, fields: {}, moved: false };
+    }
+    const entry = {
+      op: "move",
+      at: now || new Date().toISOString(),
+      fromProjectId: loc.project.id,
+      toProjectId: dest.project.id,
+      fromAreaId: loc.city.areaId || loc.task.areaId || "",
+      toAreaId: dest.city.areaId || "",
+    };
+    const next = {
+      ...loc.task,
+      id: loc.task.id,
+      projectId: dest.project.id,
+      cityId: dest.city.id,
+      areaId: dest.city.areaId || "",
+      activity: [...(loc.task.activity || []), entry],
+    };
+    loc.project.tasks.splice(loc.index, 1);
+    dest.project.tasks = dest.project.tasks || [];
+    dest.project.tasks.push(next);
+    return {
+      ok: true,
+      state: current,
+      task: next,
+      moved: true,
+      fields: {
+        projectId: next.projectId,
+        cityId: next.cityId,
+        areaId: next.areaId,
+        activity: next.activity,
+      },
+    };
+  };
+
   const findTaskLocation = (state, taskId) => {
     for (const c of (state && state.cities) || []) {
       for (const p of c.projects || []) {
@@ -867,6 +951,9 @@
     const taskId = op.taskId || (op.task && op.task.id);
     const loc = findTaskLocation(current, taskId);
     if (!loc) return { ok: false, error: { code: "not_found" } };
+    if (op.type === "move") {
+      return moveTaskInState(state, taskId, op.targetProjectId, op.at);
+    }
     if (op.type === "update") {
       loc.project.tasks[loc.index] = { ...loc.task, ...(op.fields || {}), id: loc.task.id };
       return { ok: true, state: current };
@@ -924,13 +1011,13 @@
     DEFAULT_AREAS, migrate,
     newArea, newCity, newProject, newTask, standardTasks,
     canSee, todoScore,
-    urgencyOf, listByUrgency, listTopUrgent, listInbox,
+    urgencyOf, listByUrgency, listTopUrgent, listInbox, isWaitingOnOthers,
     isValidDuration, formatDuration, toMinutes,
     FLAGS, YOSSI_EMAIL, isYossi, isBotSourceKey,
     allTasks, stripTasksFromTree, attachTasksToTree, teamStateForWrite,
     ancestorPrivacy, canReadTask, canEditTask, canApproveTask,
     normalizeTask, applyTaskMutation, assembleData,
     cloneTeamState, mergeTeamStructurePreservingTasks, findTaskLocation,
-    applyLegacyBlobMutation, canBulkReplaceData,
+    findProjectLocation, moveTaskInState, applyLegacyBlobMutation, canBulkReplaceData,
   };
 })();
