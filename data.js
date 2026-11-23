@@ -584,6 +584,265 @@
     return lo === hi ? String(lo) : lo + "–" + hi;
   };
 
+  // ─── PR1 data layer (additive) ─────────────────────────────
+  // readLegacyBlob: true = read and write the legacy teams/main.state blob
+  // (default until PR3; also the rollback switch). Writes use a transaction
+  // that re-reads state and patches only the changed task(s) by id.
+  // False = read teams/main/tasks (realtime) and write per-task docs.
+  // Flip to false only after PR3 and Yossi's approval.
+  const YOSSI_EMAIL = "yossib@tskeng-il.co.il";
+  const FLAGS = Object.assign({ readLegacyBlob: true }, window.TM_FLAGS || {});
+
+  const isYossi = (email) => email === YOSSI_EMAIL;
+  const isBotSourceKey = (source) => BOT_SOURCES.indexOf(source) !== -1;
+
+  const allTasks = (data) => {
+    const out = [];
+    for (const c of (data && data.cities) || [])
+      for (const p of c.projects || [])
+        for (const t of p.tasks || []) out.push(t);
+    return out;
+  };
+
+  const stripTasksFromTree = (data) => ({
+    ...data,
+    cities: ((data && data.cities) || []).map((c) => ({
+      ...c,
+      projects: (c.projects || []).map((p) => {
+        const { tasks, ...rest } = p;
+        return { ...rest, tasks: [] };
+      }),
+    })),
+  });
+
+  const attachTasksToTree = (data, tasks) => {
+    const byProject = new Map();
+    for (const t of tasks || []) {
+      const key = t.projectId || "";
+      if (!byProject.has(key)) byProject.set(key, []);
+      byProject.get(key).push(t);
+    }
+    return {
+      ...data,
+      cities: ((data && data.cities) || []).map((c) => ({
+        ...c,
+        projects: (c.projects || []).map((p) => ({
+          ...p,
+          tasks: byProject.get(p.id) || [],
+        })),
+      })),
+    };
+  };
+
+  const teamStateForWrite = (data) => {
+    const stripped = stripTasksFromTree(data || { areas: [], cities: [] });
+    return { areas: stripped.areas || [], cities: stripped.cities || [] };
+  };
+
+  const ancestorPrivacy = (data, cityId, projectId) => {
+    const city = ((data && data.cities) || []).find((c) => c.id === cityId);
+    const project = city && (city.projects || []).find((p) => p.id === projectId);
+    const area = city && ((data && data.areas) || []).find((a) => a.id === city.areaId);
+    for (const item of [project, city, area]) {
+      if (item && item.visibility === "private") {
+        return { visibility: "private", owner: item.owner || null, areaId: (area && area.id) || (city && city.areaId) || "" };
+      }
+    }
+    return { visibility: "shared", owner: null, areaId: (area && area.id) || (city && city.areaId) || "" };
+  };
+
+  const canReadTask = (task, email, data) => {
+    if (!task) return false;
+    if (data) {
+      const city = (data.cities || []).find((c) => c.id === task.cityId);
+      const project = city && (city.projects || []).find((p) => p.id === task.projectId);
+      const area = city && (data.areas || []).find((a) => a.id === city.areaId);
+      if (area && !canSee(area, email)) return false;
+      if (city && !canSee(city, email)) return false;
+      if (project && !canSee(project, email)) return false;
+    }
+    return canSee(task, email);
+  };
+
+  // Bot-inserted tasks: only Yossi may edit or mark done in the client.
+  // Joe does this through the bridge. Private items: owner only.
+  const canEditTask = (task, email, data) => {
+    if (!canReadTask(task, email, data)) return false;
+    if (isBotSourceKey(task.source) && !isYossi(email)) return false;
+    return true;
+  };
+
+  const canApproveTask = (task, email, data) =>
+    canReadTask(task, email, data) && isYossi(email);
+
+  const normalizeTask = (task, data, userEmail) => {
+    if (!task) return task;
+    const [rawMin, rawMax] = durationRangeOf(task);
+    const lo = Number.isInteger(rawMin) ? rawMin : 60;
+    const hi = Number.isInteger(rawMax) ? rawMax : lo;
+    const cityId = task.cityId || "";
+    const projectId = task.projectId || "";
+    const priv = data
+      ? ancestorPrivacy(data, cityId, projectId)
+      : { visibility: task.visibility || "shared", owner: task.owner || null, areaId: task.areaId || "" };
+    const durOk = isValidDuration(lo, hi);
+    return {
+      ...task,
+      id: task.id,
+      title: task.title || "",
+      status: task.status || "todo",
+      priority: task.priority || "mid",
+      due: task.due || "",
+      durationMin: durOk ? lo : 60,
+      durationMax: durOk ? hi : 60,
+      duration: task.duration != null ? task.duration : (durOk ? lo : 60),
+      source: task.source != null ? task.source : "",
+      awaitingReview: task.awaitingReview === true,
+      createdBy: task.createdBy || userEmail || "",
+      createdAt: task.createdAt || toDateInput(new Date()),
+      projectId,
+      cityId,
+      areaId: task.areaId || priv.areaId || "",
+      visibility: task.visibility != null ? task.visibility : priv.visibility,
+      owner: task.owner !== undefined ? task.owner : priv.owner,
+      version: Number.isInteger(task.version) ? task.version : 1,
+    };
+  };
+
+  // Pure transaction body for a task document. existing is the current doc or null.
+  // op: { type: "create"|"update"|"delete", task?, fields?, expectedVersion? }
+  const applyTaskMutation = (existing, op) => {
+    if (!op || !op.type) return { ok: false, error: { code: "invalid" } };
+    if (op.type === "create") {
+      if (existing) return { ok: false, error: { code: "conflict", message: "exists" } };
+      const task = op.task || {};
+      if (!task.id) return { ok: false, error: { code: "invalid" } };
+      return { ok: true, doc: { ...task, id: task.id, version: Number.isInteger(task.version) ? task.version : 1 } };
+    }
+    if (!existing) return { ok: false, error: { code: "not_found" } };
+    if (op.expectedVersion != null && existing.version !== op.expectedVersion) {
+      return { ok: false, error: { code: "conflict", message: "version" } };
+    }
+    if (op.type === "delete") return { ok: true, doc: null, deleted: true };
+    if (op.type === "update") {
+      const fields = op.fields || {};
+      const next = { ...existing, ...fields, id: existing.id, version: (existing.version || 1) + 1 };
+      next.source = existing.source;
+      next.createdBy = existing.createdBy;
+      next.owner = existing.owner;
+      next.visibility = existing.visibility;
+      return { ok: true, doc: next };
+    }
+    return { ok: false, error: { code: "invalid" } };
+  };
+
+  const assembleData = ({ teamState, tasks, readLegacyBlob }) => {
+    const team = migrate(teamState || { areas: [], cities: [] });
+    if (readLegacyBlob) return team;
+    return attachTasksToTree(stripTasksFromTree(team), tasks || []);
+  };
+
+  // Clone the team tree so blob mutations never edit the snapshot we re-read.
+  const cloneTeamState = (state) => ({
+    ...(state || {}),
+    areas: ((state && state.areas) || []).map((a) => ({ ...a })),
+    cities: ((state && state.cities) || []).map((c) => ({
+      ...c,
+      projects: (c.projects || []).map((p) => ({
+        ...p,
+        tasks: (p.tasks || []).map((task) => ({ ...task })),
+      })),
+    })),
+  });
+
+  const tasksByProjectId = (state) => {
+    const map = new Map();
+    for (const c of (state && state.cities) || []) {
+      for (const p of c.projects || []) map.set(p.id, (p.tasks || []).map((task) => ({ ...task })));
+    }
+    return map;
+  };
+
+  // Apply area/city/project structure from `partial` but keep tasks from `current`
+  // (the freshly re-read blob), so a team-doc edit cannot drop concurrent task writes.
+  const mergeTeamStructurePreservingTasks = (current, partial) => {
+    const base = cloneTeamState(current || { areas: [], cities: [] });
+    const kept = tasksByProjectId(base);
+    const areas = partial.areas ? partial.areas.map((a) => ({ ...a })) : base.areas;
+    const citiesSrc = partial.cities || base.cities;
+    const cities = citiesSrc.map((c) => ({
+      ...c,
+      projects: (c.projects || []).map((p) => {
+        const { tasks, ...rest } = p;
+        return { ...rest, tasks: kept.has(p.id) ? kept.get(p.id) : [] };
+      }),
+    }));
+    return { ...base, areas, cities };
+  };
+
+  const findTaskLocation = (state, taskId) => {
+    for (const c of (state && state.cities) || []) {
+      for (const p of c.projects || []) {
+        const idx = (p.tasks || []).findIndex((t) => t.id === taskId);
+        if (idx !== -1) return { city: c, project: p, index: idx, task: p.tasks[idx] };
+      }
+    }
+    return null;
+  };
+
+  // Surgical patch of the legacy state blob. op:
+  //   { kind: "task", type: "create"|"update"|"delete", task?, taskId?, fields? }
+  //   { kind: "team", areas?, cities? }
+  const applyLegacyBlobMutation = (state, op) => {
+    const current = cloneTeamState(state || { areas: [], cities: [] });
+    if (!op || !op.kind) return { ok: false, error: { code: "invalid" } };
+    if (op.kind === "team") {
+      return { ok: true, state: mergeTeamStructurePreservingTasks(current, op) };
+    }
+    if (op.kind !== "task") return { ok: false, error: { code: "invalid" } };
+    if (op.type === "create") {
+      const task = op.task;
+      if (!task || !task.id) return { ok: false, error: { code: "invalid" } };
+      if (findTaskLocation(current, task.id)) {
+        return { ok: false, error: { code: "conflict", message: "exists" } };
+      }
+      for (const c of current.cities) {
+        if (task.cityId && c.id !== task.cityId) continue;
+        for (const p of c.projects || []) {
+          if (task.projectId && p.id !== task.projectId) continue;
+          p.tasks = p.tasks || [];
+          p.tasks.push({ ...task });
+          return { ok: true, state: current };
+        }
+      }
+      return { ok: false, error: { code: "not_found" } };
+    }
+    const taskId = op.taskId || (op.task && op.task.id);
+    const loc = findTaskLocation(current, taskId);
+    if (!loc) return { ok: false, error: { code: "not_found" } };
+    if (op.type === "update") {
+      loc.project.tasks[loc.index] = { ...loc.task, ...(op.fields || {}), id: loc.task.id };
+      return { ok: true, state: current };
+    }
+    if (op.type === "delete") {
+      loc.project.tasks = loc.project.tasks.filter((t) => t.id !== taskId);
+      for (const c of current.cities) {
+        for (const p of c.projects || []) {
+          p.tasks = (p.tasks || []).map((t) =>
+            (t.dependsOn || []).includes(taskId)
+              ? { ...t, dependsOn: t.dependsOn.filter((id) => id !== taskId) }
+              : t
+          );
+        }
+      }
+      return { ok: true, state: current, deleted: true };
+    }
+    return { ok: false, error: { code: "invalid" } };
+  };
+
+  // replaceAll / resetSeed are local/demo only — never in signed-in cloud mode.
+  const canBulkReplaceData = (isCloud) => !isCloud;
+
   // ─── per-area color palette (stable, hash-based) ────────────
   const AREA_COLORS = [
     { key: "indigo", bar: "#6366f1", soft: "#eef2ff", ink: "#3730a3" },
@@ -620,5 +879,11 @@
     canSee, todoScore,
     urgencyOf, listByUrgency, listTopUrgent, listInbox,
     isValidDuration, formatDuration,
+    FLAGS, YOSSI_EMAIL, isYossi, isBotSourceKey,
+    allTasks, stripTasksFromTree, attachTasksToTree, teamStateForWrite,
+    ancestorPrivacy, canReadTask, canEditTask, canApproveTask,
+    normalizeTask, applyTaskMutation, assembleData,
+    cloneTeamState, mergeTeamStructurePreservingTasks, findTaskLocation,
+    applyLegacyBlobMutation, canBulkReplaceData,
   };
 })();
