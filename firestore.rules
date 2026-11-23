@@ -73,8 +73,9 @@ service cloud.firestore {
       return data.durationMin is int
         && data.durationMax is int
         && data.durationMin >= 1
-        && data.durationMax <= 720
-        && data.durationMin <= data.durationMax;
+        && data.durationMax <= 14400
+        && data.durationMin <= data.durationMax
+        && (!("durationUnit" in data) || data.durationUnit in ["min", "hour", "day"]);
     }
 
     function validTask(data) {
