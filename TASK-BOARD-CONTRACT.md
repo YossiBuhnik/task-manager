@@ -17,7 +17,7 @@ Path: `teams/main/tasks/{id}`.
 | `priority` | yes | `high` \| `mid` \| `low` | |
 | `projectId`, `cityId`, `areaId` | yes | string | Existing ids (`p_` / `c_` / `a_`, or `area_office`, etc.). |
 | `due` | yes | ISO `YYYY-MM-DD` or `""` | Empty means no due date. |
-| `durationMin`, `durationMax` | yes | integer minutes | Always a range: `1 ≤ min ≤ max ≤ 14400` (30 days). When equal, UI shows one number. |
+| `durationMin`, `durationMax` | yes | integer minutes | Always a range: `1 ≤ min ≤ max ≤ 14400` (30 work days of 8 hours = 10 calendar days of 24h). When equal, UI shows one number. |
 | `durationUnit` | no | `min` \| `hour` \| `day` | Display preference only (the unit picked in the form). Stored duration stays integer minutes. A day = 8 work hours = 480 minutes [לאימות]. |
 | `source` | yes | see enum below | `""` = manual / unknown. |
 | `createdBy` | yes | string | Source key or email. |
@@ -43,10 +43,11 @@ Areas, clients, and projects stay on the team document. The new model does not s
 | `joe` | ג'ו · סגירת יום |
 | `ido` | עידו · פיתוח |
 | `shaked` | שקד · ראש מטה |
+| `calendar-agent` | יומן · סוכן |
 | `yossi` | יוסי · האפליקציה |
 | `""` | ידני / לא ידוע |
 
-Bot sources are `michal-mail`, `ron-site`, `noga-tour`, `joe`, `ido`, `shaked`. `shaked` is a bot source, not an approver: its tasks default `awaitingReview: true`. Client (signed-in user) creates may only use `""` or `yossi`. Bot sources are written only through the Apps Script endpoint (PR2).
+Bot sources are `michal-mail`, `ron-site`, `noga-tour`, `joe`, `ido`, `shaked`, `calendar-agent`. `shaked` is a bot source, not an approver: its tasks default `awaitingReview: true`. Client (signed-in user) creates may only use `""` or `yossi`. Bot sources are written only through the Apps Script endpoint (PR2).
 
 ## 2. Urgency (client-side only — never stored in Firestore)
 
@@ -124,7 +125,7 @@ Branches: `ido/contract`, `ido/data-layer`, `ido/bot-writes`, `ido/migrate`, `cl
 4. Bot-created tasks enter the **«ממתין לסקירה»** queue (`awaitingReview: true`) and move to the board only after approval. **Only Yossi and Joe may approve a task out of the queue.** A bot may edit **its own** task while `awaitingReview` is still true (needed for Michal's live mail corrections). **Michal's mail-derived updates arrive live all day**, not only at end of day: the write point must accept **single-task writes at any time**, and they must be **idempotent**. Phone top-urgent shows **approved tasks only**.
 5. **Only Yossi and Joe** may mark done or edit a task inserted by another bot. The only human Google account is `yossib@tskeng-il.co.il` (Yossi); bots have no Google accounts, and Joe has no Google login. **Yossi** is enforced in Firestore rules by that email. **Joe** is a bridge token, and "Joe may approve / markDone / edit" is enforced in the bridge, not in rules. Service-account writes bypass rules and must go through the bridge (see §7).
 6. **Temporary compatibility** with the Drive folder `task-manager-updates` (`addTasks` / `markDone` / `setDue` + `source`). The queue is **not** the source of truth; the endpoint (and then `teams/main/tasks/{id}`) is.
-7. **Duration is always a range** `durationMin` / `durationMax`, stored as integer minutes (`1 ≤ min ≤ max ≤ 14400`). Optional `durationUnit` (`min` | `hour` | `day`) is the unit picked in the form and is display-only. A day = 8 work hours = 480 minutes [לאימות]. When min and max are equal, display one number.
+7. **Duration is always a range** `durationMin` / `durationMax`, stored as integer minutes (`1 ≤ min ≤ max ≤ 14400`, 30 work days of 8 hours = 10 calendar days of 24h). Optional `durationUnit` (`min` | `hour` | `day`) is the unit picked in the form and is display-only. A day = 8 work hours = 480 minutes [לאימות]. When min and max are equal, display one number.
 8. App name: **מנהל המשימות**.
 9. UI follows the concept sketch, plus the desktop duration column and the phone home of the top 2–3 urgent tasks, in the same visual language.
 

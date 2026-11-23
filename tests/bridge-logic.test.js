@@ -344,6 +344,81 @@ const blocked = handler({ migrationDone: false });
 eq("listTasks migration pending", blocked.handle(req({ op: "listTasks", payload: {} })).body.code, "migration_pending");
 eq("listTasks migration http", blocked.handle(req({ op: "listTasks", idempotencyKey: "x", payload: {} })).http, 403);
 
+console.log("list filters, taskId, refs, calendar-agent");
+const extra = handler({
+  tokenMap: Object.assign({}, TOKENS, { "tok-cal": { source: "calendar-agent", name: "calendar" } }),
+  teamState: {
+    areas: [
+      { id: "area_office", name: "משרד", visibility: "shared" },
+      { id: "area_priv", name: "פרטי", visibility: "private", owner: "yossib@tskeng-il.co.il" },
+    ],
+    cities: [
+      { id: "c_pub", name: "ציבורי", areaId: "area_office", projects: [
+        { id: "p_pub", name: "גלוי", visibility: "shared" },
+        { id: "p_priv", name: "מוסתר", visibility: "private" },
+      ] },
+      { id: "c_priv", name: "עיר פרטית", areaId: "area_priv", projects: [
+        { id: "p_under", name: "מתחת", visibility: "shared" },
+      ] },
+    ],
+  },
+});
+extra.deps.tasks["t_id"] = {
+  doc: { id: "t_id", title: "id-or-taskId", source: "michal-mail", createdBy: "michal-mail", awaitingReview: true, status: "todo", due: "", version: 1 },
+  updateTime: "ts-1",
+};
+is("updateTask accepts taskId", extra.handle(req({
+  op: "updateTask", idempotencyKey: "michal:tid", payload: { taskId: "t_id", title: "via taskId" },
+})).body.ok);
+eq("updateTask taskId applied", extra.deps.tasks["t_id"].doc.title, "via taskId");
+is("setDue accepts taskId", extra.handle(req({
+  op: "setDue", idempotencyKey: "michal:tid-due", payload: { taskId: "t_id", due: "2026-11-20" },
+})).body.ok);
+eq("setDue taskId applied", extra.deps.tasks["t_id"].doc.due, "2026-11-20");
+is("approveTask accepts taskId", extra.handle(req({
+  token: "tok-joe", source: "joe", op: "approveTask", idempotencyKey: "joe:tid-appr", payload: { taskId: "t_id" },
+})).body.ok);
+eq("approveTask taskId applied", extra.deps.tasks["t_id"].doc.awaitingReview, false);
+is("markDone accepts taskId", extra.handle(req({
+  token: "tok-joe", source: "joe", op: "markDone", idempotencyKey: "joe:tid-done", payload: { taskId: "t_id" },
+})).body.ok);
+eq("markDone taskId applied", extra.deps.tasks["t_id"].doc.status, "done");
+
+extra.deps.tasks["t_f1"] = { doc: { id: "t_f1", title: "in", status: "todo", source: "michal-mail", due: "2026-11-10", areaId: "area_office", projectId: "p_pub", cityId: "c_pub", awaitingReview: true, proposals: [{ id: "prop_a", kind: "edit", by: "michal-mail", at: "2026-11-01T00:00:00.000Z", state: "pending", fields: { title: "secret" }, note: "hide me" }] }, updateTime: "ts" };
+extra.deps.tasks["t_f2"] = { doc: { id: "t_f2", title: "out", status: "todo", source: "ron-site", due: "2026-12-01", areaId: "area_office", projectId: "p_pub", cityId: "c_pub", awaitingReview: false }, updateTime: "ts" };
+extra.deps.tasks["t_f3"] = { doc: { id: "t_f3", title: "empty", status: "todo", source: "michal-mail", due: "", areaId: "area_office", awaitingReview: true }, updateTime: "ts" };
+const filtered = extra.handle(req({
+  op: "listTasks", idempotencyKey: "michal:filters",
+  payload: { awaitingReview: true, source: "michal-mail", dueFrom: "2026-11-01", dueTo: "2026-11-30", limit: 10 },
+}));
+eq("filters keep the in-range task", filtered.body.tasks.map((t) => t.id), ["t_f1"]);
+const row = filtered.body.tasks[0];
+eq("areaId projectId cityId", [row.areaId, row.projectId, row.cityId], ["area_office", "p_pub", "c_pub"]);
+eq("deprecated aliases", [row.area, row.project], ["area_office", "p_pub"]);
+eq("proposals still a count", row.proposals, 1);
+eq("proposalsPending matches", row.proposalsPending, 1);
+eq("proposalList shape", row.proposalList, [{ id: "prop_a", kind: "edit", by: "michal-mail", at: "2026-11-01T00:00:00.000Z", state: "pending" }]);
+is("proposalList has no note", !("note" in row.proposalList[0]) && !("fields" in row.proposalList[0]));
+
+const michalRefs = extra.handle(req({ op: "listRefs", idempotencyKey: "michal:refs", payload: {} }));
+eq("listRefs code", michalRefs.body.code, "ok");
+eq("non-admin areas", michalRefs.body.areas.map((a) => a.id), ["area_office"]);
+eq("non-admin hides private project", michalRefs.body.projects.map((p) => p.id), ["p_pub"]);
+eq("non-admin cities", michalRefs.body.cities.map((c) => c.id), ["c_pub"]);
+eq("ref fields only", Object.keys(michalRefs.body.areas[0]).sort(), ["id", "name"]);
+const joeRefs = extra.handle(req({ token: "tok-joe", source: "joe", op: "listRefs", idempotencyKey: "joe:refs", payload: {} }));
+eq("admin sees private area", joeRefs.body.areas.map((a) => a.id).sort(), ["area_office", "area_priv"]);
+eq("admin sees private project", joeRefs.body.projects.map((p) => p.id).sort(), ["p_priv", "p_pub", "p_under"]);
+eq("listRefs migration pending", blocked.handle(req({ op: "listRefs", payload: {} })).body.code, "migration_pending");
+
+is("calendar-agent is a bot source", TMBridge.BOT_SOURCES.indexOf("calendar-agent") !== -1);
+is("calendar-agent addTask ok", extra.handle(req({
+  token: "tok-cal", source: "calendar-agent", op: "addTask", idempotencyKey: "cal:add1",
+  payload: { title: "From calendar", id: "t_cal1" },
+})).body.ok);
+eq("calendar-agent awaitingReview", extra.deps.tasks["t_cal1"].doc.awaitingReview, true);
+eq("calendar-agent source", extra.deps.tasks["t_cal1"].doc.source, "calendar-agent");
+
 console.log("");
 console.log(passed + " passed, " + failed + " failed");
 process.exit(failed ? 1 : 0);

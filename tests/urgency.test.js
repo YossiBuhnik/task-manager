@@ -134,6 +134,8 @@ eq("DURATION bounds", [TM.DURATION.MIN, TM.DURATION.MAX], [1, 14400]);
 eq("michal-mail label", TM.SOURCE_BY_KEY["michal-mail"].label, "מיכל · מייל");
 eq("shaked label", TM.SOURCE_BY_KEY.shaked.label, "שקד · ראש מטה");
 eq("shaked is a bot source", TM.BOT_SOURCES.indexOf("shaked") !== -1, true);
+eq("calendar-agent label", TM.SOURCE_BY_KEY["calendar-agent"].label, "יומן · סוכן");
+eq("calendar-agent is a bot source", TM.BOT_SOURCES.indexOf("calendar-agent") !== -1, true);
 
 console.log("");
 console.log(passed + " passed, " + failed + " failed");

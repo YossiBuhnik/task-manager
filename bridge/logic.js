@@ -4,8 +4,8 @@
 (function (root) {
   "use strict";
 
-  var OPS = ["addTask", "updateTask", "markDone", "setDue", "approveTask", "proposeDone", "acceptProposal", "rejectProposal", "listTasks"];
-  var BOT_SOURCES = ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked"];
+  var OPS = ["addTask", "updateTask", "markDone", "setDue", "approveTask", "proposeDone", "acceptProposal", "rejectProposal", "listTasks", "listRefs"];
+  var BOT_SOURCES = ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked", "calendar-agent"];
   var STATUSES = ["todo", "doing", "done"];
   var PRIORITIES = ["high", "mid", "low"];
   var PROTECTED = { source: 1, createdBy: 1, owner: 1, visibility: 1 };
@@ -73,7 +73,7 @@
     if (!body || typeof body !== "object") return { error: httpError(400, "invalid", "body") };
     if (OPS.indexOf(body.op) === -1) return { error: httpError(400, "invalid", "op") };
     var key = body.idempotencyKey;
-    var readOp = body.op === "listTasks";
+    var readOp = body.op === "listTasks" || body.op === "listRefs";
     if (readOp) {
       if (key != null && key !== "" && (typeof key !== "string" || !key.trim() || key.length > IDEMPOTENCY_MAX_LEN)) {
         return { error: httpError(400, "invalid", "idempotencyKey") };
@@ -92,9 +92,11 @@
     if (!isValidDurationUnit(payload.durationUnit)) {
       return { error: httpError(400, "invalid", "durationUnit") };
     }
-    for (var k in payload) {
-      if (PROTECTED[k] && payload[k] !== undefined) {
-        return { error: httpError(400, "invalid", "protected field") };
+    if (!readOp) {
+      for (var k in payload) {
+        if (PROTECTED[k] && payload[k] !== undefined) {
+          return { error: httpError(400, "invalid", "protected field") };
+        }
       }
     }
     if (body.op === "addTask") {
@@ -157,7 +159,7 @@
   }
 
   function authorize(actor, op, existing) {
-    if (op === "addTask" || op === "listTasks") return { ok: true };
+    if (op === "addTask" || op === "listTasks" || op === "listRefs") return { ok: true };
     if (!existing) return { error: httpError(404, "not_found") };
     if (op === "acceptProposal" || op === "rejectProposal" || op === "markDone" || op === "approveTask") {
       if (!isAdminSource(actor.source)) return { error: httpError(403, "forbidden", "admin only") };
@@ -314,7 +316,27 @@
     return n;
   }
 
+  function proposalListOf(doc) {
+    var list = (doc && doc.proposals) || [];
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i] || {};
+      out.push({
+        id: p.id,
+        kind: p.kind,
+        by: p.by,
+        at: p.at,
+        state: p.state || "pending",
+      });
+    }
+    return out;
+  }
+
   function summarizeTask(doc) {
+    var pending = pendingCount(doc);
+    var areaId = doc.areaId || "";
+    var projectId = doc.projectId || "";
+    var cityId = doc.cityId || "";
     return {
       id: doc.id,
       title: doc.title || "",
@@ -323,11 +345,24 @@
       durationMin: doc.durationMin,
       durationMax: doc.durationMax,
       durationUnit: doc.durationUnit || "",
-      area: doc.areaId || doc.area || "",
-      project: doc.projectId || doc.project || "",
+      areaId: areaId,
+      projectId: projectId,
+      cityId: cityId,
+      area: areaId || doc.area || "",
+      project: projectId || doc.project || "",
       awaitingReview: doc.awaitingReview === true,
-      proposals: pendingCount(doc),
+      proposals: pending,
+      proposalsPending: pending,
+      proposalList: proposalListOf(doc),
     };
+  }
+
+  function dueInRange(due, query) {
+    if (!query.dueFrom && !query.dueTo) return true;
+    if (!due) return false;
+    if (query.dueFrom && String(due) < String(query.dueFrom)) return false;
+    if (query.dueTo && String(due) > String(query.dueTo)) return false;
+    return true;
   }
 
   function listTaskSummaries(docs, query) {
@@ -340,6 +375,11 @@
       if (query.status && d.status !== query.status) continue;
       var area = d.areaId || d.area || "";
       if (query.area && area !== query.area) continue;
+      if (query.awaitingReview === true || query.awaitingReview === false) {
+        if ((d.awaitingReview === true) !== query.awaitingReview) continue;
+      }
+      if (query.source && (d.source || "") !== query.source) continue;
+      if (!dueInRange(d.due, query)) continue;
       if (query.since) {
         var stamp = d.updatedAt || d.createdAt || "";
         if (String(stamp) < String(query.since)) continue;
@@ -353,6 +393,44 @@
       tasks: page.map(summarizeTask),
       nextCursor: rows.length > limit ? page[page.length - 1].id : null,
     };
+  }
+
+  function isPrivateRef(item) {
+    return !!(item && item.visibility === "private");
+  }
+
+  // Areas, cities, and projects still live on the teams/main state blob.
+  // This read never writes that blob. Non-admin tokens omit private areas
+  // and the cities/projects under them, plus private projects.
+  function publicRefs(state, actor) {
+    var admin = isAdminSource(actor && actor.source);
+    var areas = [];
+    var cities = [];
+    var projects = [];
+    var hidden = {};
+    var list = (state && state.areas) || [];
+    var i, a, c, p, citiesIn;
+    for (i = 0; i < list.length; i++) {
+      a = list[i];
+      if (!a || !a.id) continue;
+      if (!admin && isPrivateRef(a)) { hidden[a.id] = 1; continue; }
+      areas.push({ id: a.id, name: a.name || "" });
+    }
+    citiesIn = (state && state.cities) || [];
+    for (i = 0; i < citiesIn.length; i++) {
+      c = citiesIn[i];
+      if (!c || !c.id) continue;
+      if (!admin && (hidden[c.areaId] || isPrivateRef(c))) continue;
+      cities.push({ id: c.id, name: c.name || "", areaId: c.areaId || "" });
+      var projs = c.projects || [];
+      for (var j = 0; j < projs.length; j++) {
+        p = projs[j];
+        if (!p || !p.id) continue;
+        if (!admin && isPrivateRef(p)) continue;
+        projects.push({ id: p.id, name: p.name || "", cityId: c.id, areaId: c.areaId || "" });
+      }
+    }
+    return { areas: areas, cities: cities, projects: projects };
   }
 
   function proposalIdFor(source, key) {
@@ -438,7 +516,7 @@
 
       var existing = null;
       var existingMeta = null;
-      if (checked.op !== "addTask" && checked.op !== "listTasks") {
+      if (checked.op !== "addTask" && checked.op !== "listTasks" && checked.op !== "listRefs") {
         existingMeta = deps.getTask ? deps.getTask(checked.payload.id) : null;
         existing = existingMeta && existingMeta.doc;
         if (!existing) return httpError(404, "not_found");
@@ -453,6 +531,10 @@
           var all = deps.listTasks ? deps.listTasks() : [];
           listed = listTaskSummaries(all, checked.payload);
           result = { http: 200, body: { ok: true, code: "ok", tasks: listed.tasks, nextCursor: listed.nextCursor } };
+        } else if (checked.op === "listRefs") {
+          var state = deps.getTeamState ? deps.getTeamState() : { areas: [], cities: [] };
+          var refs = publicRefs(state, actor);
+          result = { http: 200, body: { ok: true, code: "ok", areas: refs.areas, cities: refs.cities, projects: refs.projects } };
         } else if (checked.op === "addTask") {
           taskId = (checked.payload.id && /^t_/.test(checked.payload.id)) ? checked.payload.id : (deps.mintId || mintTaskId)();
           if (deps.getTask && deps.getTask(taskId)) return httpError(409, "conflict", "id exists");
@@ -562,6 +644,7 @@
   function createMemoryDeps(opts) {
     opts = opts || {};
     var tasks = opts.tasks || {};
+    var teamState = opts.teamState || { areas: [], cities: [] };
     var idemp = {};
     var audit = [];
     var clocks = { t: 1 };
@@ -581,6 +664,7 @@
         for (var id in tasks) if (tasks[id] && tasks[id].doc) out.push(tasks[id].doc);
         return out;
       },
+      getTeamState: function () { return teamState; },
       commitTask: function (w) {
         var cur = tasks[w.id];
         if (w.type === "create") {

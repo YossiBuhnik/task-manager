@@ -1892,6 +1892,7 @@ html, body { background: var(--bg); }
 .src-joe::before         { background: #7a5af8; }
 .src-ido::before         { background: #f79009; }
 .src-shaked::before      { background: #0e9384; }
+.src-calendar-agent::before { background: #1570ef; }
 .src-yossi::before       { background: #475467; }
 .chip-dup { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-line); }
 .chip-proposal { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-line, transparent); }

@@ -16,8 +16,8 @@ const crypto = require("crypto");
 
 const STATUS = ["todo", "doing", "done"];
 const PRIORITY = ["high", "mid", "low"];
-const SOURCES = ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked", "yossi", ""];
-const BOT_SOURCES = ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked"];
+const SOURCES = ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked", "calendar-agent", "yossi", ""];
+const BOT_SOURCES = ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked", "calendar-agent"];
 const DURATION_MIN = 1;
 const DURATION_MAX = 14400;
 const DAY_MINUTES = 480;
