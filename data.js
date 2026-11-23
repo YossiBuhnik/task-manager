@@ -33,18 +33,20 @@
   const APP_NAME = "מנהל המשימות";
   const STATUS = Object.freeze({ TODO: "todo", DOING: "doing", DONE: "done" });
   const PRIORITY = Object.freeze({ HIGH: "high", MID: "mid", LOW: "low" });
-  const DURATION = Object.freeze({ MIN: 1, MAX: 720 });
+  const DURATION = Object.freeze({ MIN: 1, MAX: 14400 });
+  const DURATION_UNITS = Object.freeze(["min", "hour", "day"]);
   const SOURCES = [
     { key: "michal-mail", label: "מיכל · מייל" },
     { key: "ron-site",    label: "רון · פיקוח" },
     { key: "noga-tour",   label: "נגה · סיור" },
     { key: "joe",         label: "ג'ו · סגירת יום" },
     { key: "ido",         label: "עידו · פיתוח" },
+    { key: "shaked",      label: "שקד · ראש מטה" },
     { key: "yossi",       label: "יוסי · האפליקציה" },
     { key: "",            label: "ידני / לא ידוע" },
   ];
   const SOURCE_BY_KEY = Object.fromEntries(SOURCES.map(s => [s.key, s]));
-  const BOT_SOURCES = Object.freeze(["michal-mail", "ron-site", "noga-tour", "joe", "ido"]);
+  const BOT_SOURCES = Object.freeze(["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked"]);
 
   // ─── id helper ──────────────────────────────────────────────
   const uid = (p = "id") =>
@@ -578,10 +580,55 @@
     return [taskOrMin, max];
   };
 
-  const formatDuration = (taskOrMin, max) => {
-    const [lo, hi] = durationRangeOf(taskOrMin, max);
+  // A day is 8 work hours = 480 minutes [לאימות].
+  const DAY_MINUTES = 480;
+
+  const toMinutes = (value, unit) => {
+    const n = typeof value === "number" ? value : Number(value);
+    if (unit === "hour") return n * 60;
+    if (unit === "day") return n * DAY_MINUTES;
+    return n;
+  };
+
+  const formatInUnit = (mins, unit) => {
+    if (unit === "min") return String(mins);
+    const per = unit === "day" ? DAY_MINUTES : 60;
+    const tenths = Math.round((mins / per) * 10);
+    const whole = Math.trunc(tenths / 10);
+    const frac = tenths % 10;
+    return frac === 0 ? String(whole) : whole + "." + frac;
+  };
+
+  const autoDurationUnit = (lo, hi) => {
+    if (hi < 60) return "min";
+    if (hi >= DAY_MINUTES && lo % DAY_MINUTES === 0 && hi % DAY_MINUTES === 0) return "day";
+    if (hi >= 60 && lo % 30 === 0 && hi % 30 === 0) return "hour";
+    return "min";
+  };
+
+  const durationUnitLabel = (unit, shown, equal) => {
+    if (unit === "hour") return "שע׳";
+    if (unit === "day") return equal && shown === "1" ? "יום" : "ימים";
+    return "דק׳";
+  };
+
+  const formatDuration = (taskOrMin, max, unit) => {
+    let lo, hi, chosen;
+    if (taskOrMin != null && typeof taskOrMin === "object") {
+      [lo, hi] = durationRangeOf(taskOrMin);
+      chosen = (typeof max === "string" ? max : null) || taskOrMin.durationUnit || null;
+    } else {
+      lo = taskOrMin;
+      hi = max;
+      chosen = unit || null;
+    }
     if (!isValidDuration(lo, hi)) return "";
-    return lo === hi ? String(lo) : lo + "–" + hi;
+    const u = chosen && DURATION_UNITS.indexOf(chosen) !== -1 ? chosen : autoDurationUnit(lo, hi);
+    const a = formatInUnit(lo, u);
+    const b = formatInUnit(hi, u);
+    const equal = lo === hi;
+    const body = equal ? a : a + "–" + b;
+    return body + " " + durationUnitLabel(u, a, equal);
   };
 
   // ─── PR1 data layer (additive) ─────────────────────────────
@@ -864,7 +911,7 @@
     STANDARD_TASKS,
     STATUSES, STATUS_BY_KEY,
     PRIORITIES, PRIORITY_BY_KEY,
-    APP_NAME, STATUS, PRIORITY, DURATION, SOURCES, SOURCE_BY_KEY, BOT_SOURCES,
+    APP_NAME, STATUS, PRIORITY, DURATION, DURATION_UNITS, SOURCES, SOURCE_BY_KEY, BOT_SOURCES,
     AREA_COLORS, areaColorFor,
     SEED,
     uid,
@@ -878,7 +925,7 @@
     newArea, newCity, newProject, newTask, standardTasks,
     canSee, todoScore,
     urgencyOf, listByUrgency, listTopUrgent, listInbox,
-    isValidDuration, formatDuration,
+    isValidDuration, formatDuration, toMinutes,
     FLAGS, YOSSI_EMAIL, isYossi, isBotSourceKey,
     allTasks, stripTasksFromTree, attachTasksToTree, teamStateForWrite,
     ancestorPrivacy, canReadTask, canEditTask, canApproveTask,
