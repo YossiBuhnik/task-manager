@@ -49,7 +49,7 @@ The client hook `on_queue_fallback` may enqueue a Drive file in `task-manager-up
 Today it writes **directly to Firestore** with a service account. Its Apps Script is `Code.gs` in the gitignored `calendar-agent/` folder, two-way with triggers.
 
 1. Stop all direct service-account writes.
-2. Route creates / updates / due changes through this bridge with **its own token** and **its own `source` key** (the key itself is [לאימות] — add it to the contract in a contract PR if it is not an existing enum value). Use the calendar event id in `idempotencyKey`.
+2. Route creates / updates / due changes through this bridge with **its own token** and source `calendar-agent`. Use the calendar event id in `idempotencyKey`.
 3. During the migration window, **pause its `Code.gs` triggers**. Leave them paused until Yossi approves the unfreeze onto the bridge only.
 4. After cut-over it has no SA write of its own; only this bridge holds the service account.
 
@@ -60,3 +60,14 @@ Today it writes **directly to Firestore** with a service account. Its Apps Scrip
 ## Clients
 
 - `../bot-client.js` and `../bot_client.py` — one method per op, auto `idempotencyKey`, retries with the **same** key, optional Drive-queue fallback hook.
+
+## Migration closure conditions
+
+Migration is not closed, and `MIGRATION_DONE` stays unset, until all of these are true:
+
+- (a) The `applyUpdates` / `updates-*.json` path is retired or frozen. That retirement is still pending Yossi's decision.
+- (b) The Drive queue is paused, or it is drained only through this bridge.
+- (c) `calendar-agent` is converted onto this bridge with its own token. Its direct service-account writes and its `Code.gs` triggers are removed.
+- (d) `tasks_app.py` is converted onto this bridge.
+
+Until then there is not a single write path.

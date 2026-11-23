@@ -35,14 +35,16 @@ A token is bound to exactly one `source`. For non-Joe tokens, the request `sourc
 ```json
 {
   "token": "<per-bot secret>",
-  "op": "addTask" | "updateTask" | "markDone" | "setDue" | "approveTask" | "proposeDone" | "acceptProposal" | "rejectProposal" | "listTasks",
+  "op": "addTask" | "updateTask" | "markDone" | "setDue" | "approveTask" | "proposeDone" | "acceptProposal" | "rejectProposal" | "listTasks" | "listRefs",
   "idempotencyKey": "<required string>",
   "source": "michal-mail" | "ron-site" | "noga-tour" | "joe" | "ido" | "shaked",
   "payload": {}
 }
 ```
 
-`idempotencyKey` is **required** on every request (including retries). Recommended form: `<source>:<stable-id>` (for example a mail message id, a Drive file id + row, or a calendar event id).
+`idempotencyKey` is **required** on every write (including retries). Recommended form: `<source>:<stable-id>` (for example a mail message id, a Drive file id + row, or a calendar event id). It is optional on the reads `listTasks` and `listRefs`.
+
+Every op that names a task accepts `payload.taskId` or `payload.id` (`updateTask`, `setDue`, `markDone`, `approveTask`, `proposeDone`, `acceptProposal`, `rejectProposal`).
 
 ### Payload by `op`
 
@@ -80,14 +82,26 @@ Accept (Joe):
 
 Response: `{ "ok": true, "code": "ok", "taskId": "t_1" }` and `status` is `done`.
 
-`listTasks` is a read. Any valid token. Same `403 migration_pending` until `MIGRATION_DONE` is `"true"`. `idempotencyKey` is optional. Filters: `since`, `status`, `area`, `limit` (default 50, max 100), `cursor`.
+`listTasks` is a read. Any valid token. Same `403 migration_pending` until `MIGRATION_DONE` is `"true"`. `idempotencyKey` is optional. Filters: `since`, `status`, `area`, `awaitingReview` (boolean), `source`, `dueFrom` / `dueTo` (ISO `YYYY-MM-DD`, inclusive; a task with an empty `due` is excluded when either bound is set), `limit` (default 50, max 100), `cursor`.
+
+A non-admin token does not receive tasks with `visibility: "private"`, or tasks whose area, city, or project is private on the team state. `joe` / `yossi` receive them. `area` and `project` on each row are deprecated aliases of `areaId` and `projectId`. Prefer `areaId`, `projectId`, and `cityId`. `proposals` remains the count of pending proposals. `proposalsPending` is the same count. `proposalList` is `[{ id, kind, by, at, state }]` for every proposal (pending, accepted, or rejected) and does not include field values or notes.
 
 ```json
-{ "token": "<bot>", "op": "listTasks", "source": "joe", "payload": { "status": "todo", "area": "area_office", "limit": 50 } }
+{ "token": "<bot>", "op": "listTasks", "source": "joe", "payload": { "status": "todo", "area": "area_office", "awaitingReview": true, "source": "michal-mail", "dueFrom": "2026-11-01", "dueTo": "2026-11-30", "limit": 50 } }
 ```
 
 ```json
-{ "ok": true, "code": "ok", "nextCursor": null, "tasks": [{ "id": "t_1", "title": "…", "status": "todo", "due": "", "durationMin": 60, "durationMax": 90, "durationUnit": "hour", "area": "area_office", "project": "p_1", "awaitingReview": true, "proposals": 1 }] }
+{ "ok": true, "code": "ok", "nextCursor": null, "tasks": [{ "id": "t_1", "title": "…", "status": "todo", "due": "2026-11-23", "durationMin": 60, "durationMax": 90, "durationUnit": "hour", "areaId": "area_office", "cityId": "c_1", "projectId": "p_1", "area": "area_office", "project": "p_1", "awaitingReview": true, "proposals": 1, "proposalsPending": 1, "proposalList": [{ "id": "prop_…", "kind": "edit", "by": "michal-mail", "at": "2026-11-23T10:00:00.000Z", "state": "pending" }] }] }
+```
+
+`listRefs` is a read of the board's areas, cities, and projects. They still live on the `teams/main` state blob (not a separate collection). The bridge reads that blob and does not write it. Any valid token. Same `403 migration_pending`. Only `id`, `name`, and parent ids are returned. `joe` / `yossi` see private items; every other source omits private areas and the cities and projects under them, and omits private projects.
+
+```json
+{ "token": "<bot>", "op": "listRefs", "source": "ron-site", "payload": {} }
+```
+
+```json
+{ "ok": true, "code": "ok", "areas": [{ "id": "area_office", "name": "משרד" }], "cities": [{ "id": "c_1", "name": "עירייה", "areaId": "area_office" }], "projects": [{ "id": "p_1", "name": "צומת", "cityId": "c_1", "areaId": "area_office" }] }
 ```
 
 Single-task writes are the primary path and are accepted **at any time of day**. This is required for Michal's mail-derived updates, which arrive live throughout the day (not only at end of day). Details: §7. A batch is allowed only as a compatibility wrapper (see §9): the handler splits it into per-task operations, each with its own `idempotencyKey`.
@@ -195,7 +209,7 @@ These writers today write Firestore **directly** (the `teams/main.state` blob, v
 ### `calendar-agent`
 
 - Today it writes **directly to Firestore** with a **service account**. Its Apps Script is `Code.gs` in the calendar-agent folder (not in this repo; the folder is gitignored), two-way with triggers.
-- PR2 conversion: **stop all direct Firestore writes**. Route every create / update / due change through this bridge, with **its own bot token** and **its own `source` key** (the key itself [לאימות] — add a contract value in a contract PR if it is not one of the existing enum members). Use calendar event ids in `idempotencyKey`.
+- PR2 conversion: **stop all direct Firestore writes**. Route every create / update / due change through this bridge, with **its own bot token** and source `calendar-agent`. Use calendar event ids in `idempotencyKey`.
 - Migration window: **pause its `Code.gs` triggers** so two-way sync cannot write during PR3. Leave them paused until Yossi approves the unfreeze onto the bridge only.
 - After cut-over, `calendar-agent` has no service-account write of its own; only the bridge holds the SA.
 
@@ -220,6 +234,15 @@ Code lives in `bridge/` (`logic.js` + `Code.gs`) with clients `bot-client.js` an
 **Pre-migration flag.** Script Property `MIGRATION_DONE` must be `"true"` before the bridge will write. Until then every authenticated request is refused with `403 migration_pending`. This is the safe option: the bridge never writes the legacy `teams/main.state` blob (the overwrite risk). Existing writers stay on their current paths until they are frozen for PR3; after a successful migration and Yossi's approval, set the flag and unfreeze them onto this endpoint only.
 
 A `yossi` token, if added later, has the same authorization as the Joe token on this endpoint.
+
+## Migration closure conditions
+
+`MIGRATION_DONE` stays unset, and the migration is not closed, until every item below is true. Until then there is not a single write path.
+
+- (a) The `applyUpdates` / `updates-*.json` path is retired or frozen. Retiring it is still pending Yossi's decision (see the section below).
+- (b) The Drive queue is paused, or it is drained only through this bridge.
+- (c) `calendar-agent` is converted onto this bridge with its own token. Its direct service-account writes and its `Code.gs` triggers are removed.
+- (d) `tasks_app.py` is converted onto this bridge.
 
 ## Decision for Yossi at review: retire updates-*.json / applyUpdates
 

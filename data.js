@@ -42,11 +42,12 @@
     { key: "joe",         label: "ג'ו · סגירת יום" },
     { key: "ido",         label: "עידו · פיתוח" },
     { key: "shaked",      label: "שקד · ראש מטה" },
+    { key: "calendar-agent", label: "יומן · סוכן" },
     { key: "yossi",       label: "יוסי · האפליקציה" },
     { key: "",            label: "ידני / לא ידוע" },
   ];
   const SOURCE_BY_KEY = Object.fromEntries(SOURCES.map(s => [s.key, s]));
-  const BOT_SOURCES = Object.freeze(["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked"]);
+  const BOT_SOURCES = Object.freeze(["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked", "calendar-agent"]);
 
   // ─── id helper ──────────────────────────────────────────────
   const uid = (p = "id") =>
