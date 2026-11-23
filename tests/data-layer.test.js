@@ -191,6 +191,19 @@ function createLayer(fb, { readLegacyBlob = false } = {}) {
     createTask: (task) => runTaskTx(task.id, { type: "create", task }),
     updateTaskDoc: (taskId, fields, expectedVersion) =>
       runTaskTx(taskId, { type: "update", fields, expectedVersion }),
+    moveTaskDoc: async (taskId, targetProjectId) => {
+      if (readLegacyBlob) return runTaskTx(taskId, { type: "move", targetProjectId });
+      const team = fb._team.data && fb._team.data.state;
+      const tasks = [...fb._tasks.values()];
+      const tree = TM.assembleData({ teamState: team, tasks, readLegacyBlob: false });
+      const plan = TM.moveTaskInState(tree, taskId, targetProjectId);
+      if (!plan.ok || !plan.moved) return plan.ok ? { ok: true } : plan;
+      return runTaskTx(taskId, {
+        type: "update",
+        fields: plan.fields,
+        expectedVersion: plan.task.version,
+      });
+    },
     deleteTaskDoc: (taskId, expectedVersion) =>
       runTaskTx(taskId, { type: "delete", expectedVersion }),
     approveTask: (taskId, expectedVersion) =>
@@ -372,6 +385,60 @@ async function main() {
       }],
     });
     eq("stripped tasks empty", stripped.cities[0].projects[0].tasks, []);
+  }
+
+  console.log("waiting on others");
+  is("assignee is not waiting", !TM.isWaitingOnOthers({ status: "todo", assignee: "דנה", source: "michal-mail" }));
+  is("bot source is not waiting", !TM.isWaitingOnOthers({ status: "todo", source: "shaked", assignee: "" }));
+  is("done is not waiting", !TM.isWaitingOnOthers({ status: "done", waitingOn: "עירייה" }));
+  is("waitingOn string counts", TM.isWaitingOnOthers({ status: "todo", waitingOn: "עירייה" }));
+  is("waitingOn party counts", TM.isWaitingOnOthers({ status: "doing", waitingOn: { party: "מחלקת הנדסה" } }));
+  is("empty waitingOn does not count", !TM.isWaitingOnOthers({ status: "todo", waitingOn: "" }));
+  is("status waiting counts", TM.isWaitingOnOthers({ status: "waiting" }));
+
+  console.log("moveTask");
+  {
+    const team = {
+      areas: [
+        { id: "area_office", name: "משרד" },
+        { id: "area_pm", name: "ניהול" },
+      ],
+      cities: [
+        { id: "c1", areaId: "area_office", projects: [{ id: "p1", tasks: [] }] },
+        { id: "c2", areaId: "area_pm", projects: [{ id: "p2", tasks: [] }] },
+      ],
+    };
+    const task = { id: "t_move", title: "Keep me", projectId: "p1", cityId: "c1", areaId: "area_office", notes: "history", activity: [{ op: "note" }] };
+    const seeded = TM.applyLegacyBlobMutation(team, { kind: "task", type: "create", task }).state;
+    const moved = TM.applyLegacyBlobMutation(seeded, { kind: "task", type: "move", taskId: "t_move", targetProjectId: "p2", at: "2026-11-23T00:00:00.000Z" });
+    is("legacy move ok", moved.ok);
+    eq("left the old project", moved.state.cities[0].projects[0].tasks, []);
+    const parked = moved.state.cities[1].projects[0].tasks[0];
+    eq("same id", parked.id, "t_move");
+    eq("notes kept", parked.notes, "history");
+    eq("new project", parked.projectId, "p2");
+    eq("area follows project", parked.areaId, "area_pm");
+    eq("activity appended", parked.activity.map((a) => a.op), ["note", "move"]);
+    const doc = TM.applyTaskMutation(task, { type: "update", fields: {
+      projectId: parked.projectId, cityId: parked.cityId, areaId: parked.areaId, activity: parked.activity,
+    } });
+    is("per-task move ok", doc.ok);
+    eq("per-task id kept", doc.doc.id, "t_move");
+    eq("per-task project", doc.doc.projectId, "p2");
+    eq("per-task activity", doc.doc.activity.length, 2);
+    const fb = createMemoryFirestore();
+    fb.seedTeam(team);
+    const layer = createLayer(fb, { readLegacyBlob: false });
+    const created = await layer.createTask({ ...task, version: 1, status: "todo", priority: "mid", source: "", awaitingReview: false });
+    is("per-task create ok", created.ok);
+    const viaApi = await layer.moveTaskDoc("t_move", "p2");
+    is("moveTaskDoc ok", viaApi.ok);
+    const stored = fb._tasks.get("t_move");
+    eq("moveTaskDoc id", stored.id, "t_move");
+    eq("moveTaskDoc project", stored.projectId, "p2");
+    eq("moveTaskDoc city", stored.cityId, "c2");
+    eq("moveTaskDoc area", stored.areaId, "area_pm");
+    eq("moveTaskDoc activity", stored.activity.map((a) => a.op), ["note", "move"]);
   }
 
   console.log("");
