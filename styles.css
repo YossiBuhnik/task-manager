@@ -2151,3 +2151,52 @@ html[data-theme="dark"] .modal { border: 1px solid var(--line-2); }
 /* hash-palette area tints (inline --area-soft/--area-ink are light-only) */
 html[data-theme="dark"] .card.card-tinted { background: linear-gradient(to left, var(--surface) 70%, color-mix(in srgb, var(--area-color, var(--accent)) 16%, var(--surface))); }
 html[data-theme="dark"] .todo-proj, html[data-theme="dark"] .area-pill { background: color-mix(in srgb, var(--area-color, var(--accent)) 20%, var(--surface)); color: var(--ink); }
+/* ─── PR5: duration range, desktop table, phone home ─── */
+.dur { white-space: nowrap; }
+.dur-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.dur-preset { cursor: pointer; font-family: inherit; border-color: var(--line); background: var(--surface); }
+.dur-preset:hover { background: var(--bg-2); }
+.dur-preset.is-on { background: var(--accent-2); color: var(--accent-ink); border-color: var(--accent); }
+.dur-range { display: flex; align-items: center; gap: 8px; }
+.dur-range select { flex: 1; }
+.dur-range span { color: var(--ink-3); font-size: 13px; }
+
+.ttable-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+.ttable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ttable th {
+  position: sticky; top: 0; background: var(--bg); text-align: right;
+  font-size: 12px; font-weight: 700; color: var(--ink-3); padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.ttable td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.ttable tbody tr { cursor: pointer; }
+.ttable tbody tr:hover { background: var(--bg); }
+.ttable tbody tr:last-child td { border-bottom: 0; }
+.ttable tr.is-overdue { background: var(--danger-bg); }
+.ttable tr.is-overdue td:first-child { box-shadow: inset -3px 0 0 var(--danger); }
+.ttable tr.is-dup td:first-child { box-shadow: inset -3px 0 0 var(--danger-line); }
+.ttable .tt-title { font-weight: 600; min-width: 200px; }
+.ttable .tt-sub { color: var(--ink-3); font-size: 12px; }
+.ttable .tt-dur { white-space: nowrap; font-weight: 600; color: var(--ink-2); }
+.ttable .muted { color: var(--ink-3); }
+
+.phone-home { display: flex; flex-direction: column; gap: 12px; }
+.ph-sub { margin: -8px 0 4px; color: var(--ink-3); font-size: 13px; }
+.ph-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.ph-item { display: flex; gap: 10px; align-items: flex-start; }
+.ph-rank {
+  flex: 0 0 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--rank-bg); color: var(--rank-ink); font-weight: 800; font-size: 14px; margin-top: 8px;
+}
+.ph-card { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.ph-card .tcard { padding: 12px 14px; }
+.ph-card .tcard-title { font-size: 16px; }
+.ph-done { align-self: flex-start; }
+.ph-more { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-3); }
+.ph-inbox { color: var(--ph-inbox); font-weight: 600; }
+.ph-board { width: 100%; justify-content: center; padding: 12px; font-size: 15px; }
+.ph-back { margin-bottom: 12px; }
+/* phone home shows only the top tasks: hide the structure grid + footer below it */
+.app:has(.phone-home) .section, .app:has(.phone-home) .data-tools { display: none; }
+.tb-grid.is-wide { grid-template-columns: minmax(0, 1fr); }
+.tb-grid.is-wide .tb-aside { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.ttable .tt-sub { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

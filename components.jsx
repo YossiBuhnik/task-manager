@@ -534,6 +534,57 @@ function DependsField({ taskId, tasks, value, onChange }) {
   );
 }
 
+// ─── Duration range (minutes) ───────────────────────────────
+// Display: «5–10 דק׳», «4–6 שע׳», «30 דק׳–2 שע׳»; one number when min = max.
+function durPart(m) {
+  if (m < 60) return { n: String(m), u: "דק׳" };
+  const h = m / 60;
+  return { n: Number.isInteger(h) ? String(h) : h.toFixed(1).replace(/\.0$/, ""), u: "שע׳" };
+}
+function formatDurationHe(taskOrMin, max) {
+  if (!window.TM.formatDuration(taskOrMin, max)) return "";
+  let lo, hi;
+  if (taskOrMin && typeof taskOrMin === "object") {
+    lo = taskOrMin.durationMin; hi = taskOrMin.durationMax;
+    if (lo == null && hi == null) lo = hi = taskOrMin.duration;
+  } else { lo = taskOrMin; hi = max; }
+  const a = durPart(lo), b = durPart(hi);
+  if (lo === hi) return `${a.n} ${a.u}`;
+  // LTR isolate keeps «5–10» in reading order inside RTL text.
+  const ltr = (x) => "\u2066" + x + "\u2069";
+  return a.u === b.u ? `${ltr(a.n + "–" + b.n)} ${a.u}` : `${a.n} ${a.u}–${b.n} ${b.u}`;
+}
+const DURATION_STEPS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 360, 480, 600, 720];
+const DURATION_PRESETS = [[5, 10], [15, 30], [30, 60], [60, 120], [120, 240], [240, 360]];
+
+function DurationField({ min, max, onChange }) {
+  const steps = Array.from(new Set([...DURATION_STEPS, min, max])).sort((a, b) => a - b);
+  const label = (m) => formatDurationHe(m, m);
+  const setMin = (v) => onChange(v, Math.max(v, max));
+  const setMax = (v) => onChange(Math.min(min, v), v);
+  return (
+    <div className="field">
+      <label>משך משוער <span style={{ color: "var(--ink-3)", fontWeight: 400 }}>(טווח — {formatDurationHe(min, max)})</span></label>
+      <div className="dur-presets">
+        {DURATION_PRESETS.map(([a, b]) => (
+          <button key={a + "-" + b} type="button"
+            className={"chip dur-preset" + (a === min && b === max ? " is-on" : "")}
+            onClick={() => onChange(a, b)}>{formatDurationHe(a, b)}</button>
+        ))}
+      </div>
+      <div className="dur-range">
+        <select aria-label="משך מינימלי" value={min} onChange={(e) => setMin(Number(e.target.value))}>
+          {steps.map(m => <option key={m} value={m}>{label(m)}</option>)}
+        </select>
+        <span>עד</span>
+        <select aria-label="משך מקסימלי" value={max} onChange={(e) => setMax(Number(e.target.value))}>
+          {steps.map(m => <option key={m} value={m}>{label(m)}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+}
+
 // ─── Task modal ─────────────────────────────────────────────
 function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onApprove, context }) {
   const [t, setT] = useState({
@@ -542,6 +593,8 @@ function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onAppro
     due: task?.due || "",
     time: task?.time || "",
     duration: task?.duration ?? 60,
+    durationMin: Number.isInteger(task?.durationMin) ? task.durationMin : (task?.duration ?? 60),
+    durationMax: Number.isInteger(task?.durationMax) ? task.durationMax : (task?.duration ?? 60),
     participants: task?.participants || "",
     assignee: task?.assignee || "",
     priority: task?.priority || "mid",
@@ -577,10 +630,10 @@ function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onAppro
       ...t,
       title: t.title.trim(),
       participants: t.participants.trim(),
+      duration: t.durationMax,
       emails: e ? [...t.emails, e] : t.emails,
     });
   };
-  const hasTime = !!t.time;
   // Inbox items: save the edits and move the task to the board in one step.
   const approveAndFile = () => {
     if (!t.title.trim()) return;
@@ -649,21 +702,8 @@ function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onAppro
           </div>
         </div>
       </div>
-      {hasTime && (
-        <div className="field">
-          <label>משך הפגישה</label>
-          <select value={t.duration} onChange={(e) => set("duration", Number(e.target.value))}>
-            <option value={15}>15 דקות</option>
-            <option value={30}>30 דקות</option>
-            <option value={45}>45 דקות</option>
-            <option value={60}>שעה</option>
-            <option value={90}>שעה וחצי</option>
-            <option value={120}>שעתיים</option>
-            <option value={180}>3 שעות</option>
-            <option value={240}>4 שעות</option>
-          </select>
-        </div>
-      )}
+      <DurationField min={t.durationMin} max={t.durationMax}
+        onChange={(lo, hi) => setT(prev => ({ ...prev, durationMin: lo, durationMax: hi }))} />
       <RecurField recur={t.recur} due={t.due}
         onChange={(recur, due) => setT(prev => ({ ...prev, recur, due }))} />
       <DependsField taskId={task?.id} tasks={projectTasks} value={t.dependsOn}
@@ -758,7 +798,7 @@ function useDragList(onReorder) {
 
 Object.assign(window, {
   Icon, BrandGlyph, Progress, StatusPill,
-  SourceChip, DupChip, AreaChip, PriorityChip, StatusChip, areaTone, CollapseToggle, celebrateDone,
+  SourceChip, DupChip, AreaChip, PriorityChip, StatusChip, areaTone, formatDurationHe, CollapseToggle, celebrateDone,
   toastInfo: (title, sub) => toast(title, sub, { info: true }),
   Modal, AreaModal, CityModal, VisibilityPicker, ProjectModal, TaskModal, ConfirmModal,
   useDragList,
