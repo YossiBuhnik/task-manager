@@ -593,6 +593,29 @@
     return hasWaitingOn(task);
   };
 
+  const pendingProposals = (task) =>
+    ((task && task.proposals) || []).filter((p) => p && (!p.state || p.state === "pending"));
+
+  // Client-side accept/reject. Accept of kind "done" sets status done.
+  // Accept of kind "edit" applies fields. Neither path is a bot write.
+  const decideProposal = (task, proposalId, decision) => {
+    if (!task) return { ok: false };
+    const list = (task.proposals || []).map((p) => ({ ...p }));
+    const proposal = list.find((p) => p.id === proposalId);
+    if (!proposal || (proposal.state && proposal.state !== "pending")) return { ok: false };
+    proposal.state = decision === "accept" ? "accepted" : "rejected";
+    const next = { ...task, id: task.id, proposals: list };
+    if (decision === "accept" && proposal.kind === "done") next.status = "done";
+    else if (decision === "accept" && proposal.fields) {
+      const fields = proposal.fields;
+      for (const k of Object.keys(fields)) {
+        if (k === "id" || k === "source" || k === "createdBy" || k === "owner" || k === "visibility") continue;
+        next[k] = fields[k];
+      }
+    }
+    return { ok: true, task: next };
+  };
+
   const isValidDuration = (min, max) => {
     const a = typeof min === "number" ? min : Number(min);
     const b = typeof max === "number" ? max : Number(max);
@@ -1012,6 +1035,7 @@
     newArea, newCity, newProject, newTask, standardTasks,
     canSee, todoScore,
     urgencyOf, listByUrgency, listTopUrgent, listInbox, isWaitingOnOthers,
+    pendingProposals, decideProposal,
     isValidDuration, formatDuration, toMinutes,
     FLAGS, YOSSI_EMAIL, isYossi, isBotSourceKey,
     allTasks, stripTasksFromTree, attachTasksToTree, teamStateForWrite,

@@ -146,6 +146,8 @@ The **app UI (Yossi)** writes per-task documents **directly**, with transactions
 
 Joe's identity is a **bridge token**, not a Google login, so "Joe may approve / markDone" is enforced in the bridge. "Yossi" is enforced in rules by email (`yossib@tskeng-il.co.il`).
 
+A bot may `proposeDone` or, when it does not own the task or the task is no longer `awaitingReview`, send `updateTask` / `setDue` as an edit proposal. Those writes append `proposals[]` and do not change `status` or the other fields. Only Joe or Yossi accept (accept of kind `done` is mark done) or reject. `listTasks` is the read for `tasks_app.py`. Examples are in `BOT-WRITE-SPEC.md`.
+
 ## 8. Migration (PR3) — constraints for later work
 
 Script name (repo is flat): `migrate-tasks.js`.

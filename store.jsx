@@ -105,6 +105,31 @@ function useStore(cloud) {
     return true;
   };
 
+  const decideLocal = (d, taskId, proposalId, decision) => {
+    const current = findTaskInData(d, taskId);
+    if (!current || !guardApprove(current)) return d;
+    const result = window.TM.decideProposal(current, proposalId, decision);
+    if (!result.ok) return d;
+    const fields = {
+      proposals: result.task.proposals,
+      status: result.task.status,
+      due: result.task.due,
+      title: result.task.title,
+      priority: result.task.priority,
+      durationMin: result.task.durationMin,
+      durationMax: result.task.durationMax,
+    };
+    persistTaskUpdate(current, fields);
+    const patch = (t) => t.id === taskId ? result.task : t;
+    return {
+      ...d,
+      cities: d.cities.map(c => ({
+        ...c,
+        projects: c.projects.map(p => ({ ...p, tasks: p.tasks.map(patch) })),
+      })),
+    };
+  };
+
   const actions = React.useMemo(() => ({
     // AREA (תחום)
     addArea: (name, opts = {}) => update(d => persistTeam({ ...d, areas: [...d.areas, window.TM.newArea(name, opts)] })),
@@ -306,6 +331,9 @@ function useStore(cloud) {
       if (c && c.writesEnabled && c.moveTaskDoc) c.moveTaskDoc(taskId, targetProjectId);
       return plan.state;
     }),
+
+    acceptProposal: (taskId, proposalId) => update(d => decideLocal(d, taskId, proposalId, "accept")),
+    rejectProposal: (taskId, proposalId) => update(d => decideLocal(d, taskId, proposalId, "reject")),
 
     approveTask: (cityIdOrId, projectId, taskId) => update(d => {
       const id = taskId || cityIdOrId;

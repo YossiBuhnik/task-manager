@@ -1894,6 +1894,7 @@ html, body { background: var(--bg); }
 .src-shaked::before      { background: #0e9384; }
 .src-yossi::before       { background: #475467; }
 .chip-dup { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-line); }
+.chip-proposal { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-line, transparent); }
 .chip-prio.prio-high { background: var(--danger-bg); color: var(--danger); }
 .chip-prio.prio-mid  { background: var(--warn-bg); color: var(--warn); }
 .chip-prio.prio-low  { background: var(--prio-low-bg); color: var(--prio-low-ink); }
