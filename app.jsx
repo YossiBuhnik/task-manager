@@ -20,7 +20,7 @@ function SignInScreen({ onSignIn }) {
     <div className="signin">
       <div className="signin-card">
         <div className="signin-mark"><window.BrandGlyph /></div>
-        <h1>מנהל פרויקטים</h1>
+        <h1>{window.TM.APP_NAME}</h1>
         <p>התחבר כדי לסנכרן את הנתונים שלך עם הצוות, בין המכשירים, באופן מיידי.</p>
         <button className="btn-google" onClick={onSignIn}>
           <svg width="18" height="18" viewBox="0 0 48 48">

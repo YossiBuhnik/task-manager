@@ -153,6 +153,37 @@ function StatusPill({ status }) {
   return <span className={"pill " + s.pill}>{s.label}</span>;
 }
 
+// ─── Board chips (task-board sketch) ───────────────────────
+// Fixed categorical colors for the three known areas; other areas fall back
+// to the stable hash palette in data.js.
+const AREA_TONES = { area_office: "office", area_pm: "pm", area_qa: "qa" };
+function areaTone(areaId) {
+  return AREA_TONES[areaId] || ("hash-" + window.TM.areaColorFor(areaId).key);
+}
+function SourceChip({ source }) {
+  if (!source) return null;
+  const s = window.TM.SOURCE_BY_KEY[source];
+  return <span className={"chip chip-src src-" + source}>{s ? s.label : source}</span>;
+}
+function DupChip({ task }) {
+  if (!task || !(task.dupGroup || task.dupLabel)) return null;
+  return <span className="chip chip-dup" title="ייתכן כפילות">{task.dupLabel || "כפילות אפשרית"}</span>;
+}
+function AreaChip({ area }) {
+  if (!area) return null;
+  return <span className={"chip chip-area tone-" + areaTone(area.id)}>{area.name}</span>;
+}
+function PriorityChip({ priority }) {
+  const p = window.TM.PRIORITY_BY_KEY[priority];
+  if (!p) return null;
+  return <span className={"chip chip-prio prio-" + priority}>{p.label}</span>;
+}
+function StatusChip({ status }) {
+  const s = window.TM.STATUS_BY_KEY[status];
+  if (!s) return null;
+  return <span className={"chip chip-status st-" + status}>{s.label}</span>;
+}
+
 // ─── App logo glyph (progress ring + check, same as icons/*.png) ──
 function BrandGlyph() {
   return (
@@ -502,7 +533,7 @@ function DependsField({ taskId, tasks, value, onChange }) {
 }
 
 // ─── Task modal ─────────────────────────────────────────────
-function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete }) {
+function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onApprove, context }) {
   const [t, setT] = useState({
     title: task?.title || "",
     status: task?.status || "todo",
@@ -548,13 +579,21 @@ function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete }) {
     });
   };
   const hasTime = !!t.time;
+  // Inbox items: save the edits and move the task to the board in one step.
+  const approveAndFile = () => {
+    if (!t.title.trim()) return;
+    submit();
+    onApprove && onApprove();
+  };
+  const reviewing = !!(task && task.awaitingReview && onApprove);
   return (
     <Modal
-      title={task ? "עריכת משימה" : "הוספת משימה"}
+      title={task ? (reviewing ? "סקירת משימה" : "עריכת משימה") : "הוספת משימה"}
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-primary" onClick={submit}>שמירה</button>
+          {reviewing && <button className="btn btn-primary" onClick={approveAndFile}>{Icon.check}<span>אישור ותיוק</span></button>}
+          <button className={reviewing ? "btn" : "btn btn-primary"} onClick={submit}>שמירה</button>
           <button className="btn" onClick={onClose}>ביטול</button>
           {task && onDelete && (
             <>
@@ -565,6 +604,14 @@ function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete }) {
         </>
       }
     >
+      {task && (task.source || task.dupGroup || task.dupLabel || context) && (
+        <div className="task-context">
+          <SourceChip source={task.source} />
+          <DupChip task={task} />
+          {context && context.area && <AreaChip area={context.area} />}
+          {context && <span className="task-context-path">{[context.project && context.project.name, context.city && context.city.name].filter(Boolean).join(" · ")}</span>}
+        </div>
+      )}
       <div className="field">
         <label>כותרת</label>
         <input autoFocus value={t.title} onChange={(e) => set("title", e.target.value)} />
@@ -708,7 +755,8 @@ function useDragList(onReorder) {
 }
 
 Object.assign(window, {
-  Icon, BrandGlyph, Progress, StatusPill, CollapseToggle, celebrateDone,
+  Icon, BrandGlyph, Progress, StatusPill,
+  SourceChip, DupChip, AreaChip, PriorityChip, StatusChip, areaTone, CollapseToggle, celebrateDone,
   toastInfo: (title, sub) => toast(title, sub, { info: true }),
   Modal, AreaModal, CityModal, VisibilityPicker, ProjectModal, TaskModal, ConfirmModal,
   useDragList,
