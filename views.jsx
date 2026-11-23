@@ -6,12 +6,12 @@ const { useState: vUseState, useMemo: vUseMemo, useEffect: vUseEffect } = React;
 // ───────────────────────────────────────────────────────────
 // SHARED: Top bar
 // ───────────────────────────────────────────────────────────
-function TopBar({ search, onSearchChange }) {
+function TopBar({ search, onSearchChange, theme, onToggleTheme }) {
   return (
     <header className="topbar">
       <div className="brand">
         <div className="brand-mark"><window.BrandGlyph /></div>
-        <span>מנהל פרויקטים</span>
+        <span>{window.TM.APP_NAME}</span>
       </div>
       <div className="topbar-spacer" />
       <input
@@ -20,6 +20,12 @@ function TopBar({ search, onSearchChange }) {
         value={search}
         onChange={(e) => onSearchChange(e.target.value)}
       />
+      {onToggleTheme && (
+        <button type="button" className="theme-toggle" onClick={onToggleTheme}
+          aria-label={theme === "dark" ? "מצב יום" : "מצב לילה"} title={theme === "dark" ? "מצב יום" : "מצב לילה"}>
+          {theme === "dark" ? window.Icon.sun : window.Icon.moon}
+        </button>
+      )}
     </header>
   );
 }
@@ -53,8 +59,6 @@ function matchText(needle, haystack) {
 // ───────────────────────────────────────────────────────────
 // DASHBOARD: TODO list (open tasks ranked by urgency, one column per תחום)
 // ───────────────────────────────────────────────────────────
-const TODO_PAGE = 8;
-
 function dueLabel(due) {
   const n = window.TM.daysUntil(due);
   if (n < 0)   return { text: `באיחור ${-n === 1 ? "יום" : -n + " ימים"}`, cls: "is-overdue" };
@@ -92,105 +96,6 @@ function TaskBadges({ task, project, onShowAll }) {
   );
 }
 
-function TodoColumn({ group, actions }) {
-  const [shown, setShown] = vUseState(TODO_PAGE);
-  // Phone only: each column starts closed so the תחומים section is reachable
-  // without scrolling. On wider screens CSS ignores this and shows everything.
-  const [open, setOpen] = vUseState(false);
-  const { area, items, undated } = group;
-  const visible = items.slice(0, shown);
-  const more = items.length - visible.length;
-  const openProject = (city, project) => window.go("/project/" + city.id + "/" + project.id);
-  const areaColor = window.TM.areaColorFor(area.id);
-
-  return (
-    <div className={"todo-col" + (open ? " is-open" : "")}
-      style={{ "--area-color": areaColor.bar, "--area-soft": areaColor.soft, "--area-ink": areaColor.ink }}>
-      <div className="todo-col-head" onClick={() => setOpen(v => !v)}>
-        <span className="todo-col-toggle"><window.CollapseToggle collapsed={!open} onToggle={() => {}} /></span>
-        <h3>{area.name}</h3>
-        {area.visibility === "private" && <span className="vis-badge" title="תחום פרטי">{window.Icon.lock}</span>}
-        <span className="section-count">{items.length}</span>
-      </div>
-
-      <div className="todo-col-body">
-        {items.length === 0 && undated.length === 0 && (
-          <div className="todo-empty">אין משימות פתוחות</div>
-        )}
-
-        {visible.map(({ task, city, project }) => {
-          const due = dueLabel(task.due);
-          const prio = window.TM.PRIORITY_BY_KEY[task.priority] || window.TM.PRIORITIES[1];
-          const color = window.TM.areaColorFor(city.id);
-          return (
-            <div key={task.id} className={"todo-item" + (window.TM.blockersOf(task, project.tasks).length ? " is-blocked" : "")}>
-              <button className="task-check" title="סמן כהושלם"
-                onClick={(e) => {
-                  window.celebrateDone(e.currentTarget, task, project);
-                  actions.updateTask(city.id, project.id, task.id, { status: "done" });
-                }} />
-              <div className="todo-body">
-                <div className="todo-title" onClick={() => openProject(city, project)}>{task.title}</div>
-                <div className="todo-meta">
-                  <span className={"todo-due " + due.cls}>{due.text}</span>
-                  <TaskBadges task={task} project={project} onShowAll={() => openProject(city, project)} />
-                  <span className={"prio-tag " + prio.cls}>{prio.label}</span>
-                  {task.status === "doing" && <span className="pill pill-doing">בתהליך</span>}
-                  <a className="todo-proj" href={"#/project/" + city.id + "/" + project.id}
-                    style={{ "--area-color": color.bar, "--area-soft": color.soft, "--area-ink": color.ink }}>
-                    {city.name} › {project.name}
-                  </a>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-
-        {more > 0 && (
-          <button className="btn btn-ghost btn-sm todo-more" onClick={() => setShown(s => s + TODO_PAGE)}>
-            הצג עוד ({more})
-          </button>
-        )}
-
-        {undated.length > 0 && (
-          <div className="todo-undated">
-            <div className="todo-undated-title">משימות פתוחות ללא תאריך יעד</div>
-            {undated.map(({ city, project, count }) => (
-              <a key={project.id} className="todo-undated-row"
-                href={"#/project/" + city.id + "/" + project.id}>
-                <span>{city.name} › {project.name}</span>
-                <span className="section-count">{count}</span>
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function TodoPanel({ data, actions, userEmail }) {
-  const [collapsed, setCollapsed] = vUseState(false);
-  const groups = vUseMemo(() => window.buildTodos(data, userEmail), [data, userEmail]);
-  const total = groups.reduce((n, g) => n + g.items.length, 0);
-  if (groups.length === 0) return null;
-  return (
-    <div className="section">
-      <div className="section-head">
-        <window.CollapseToggle collapsed={collapsed} onToggle={() => setCollapsed(v => !v)} />
-        <h2>משימות לביצוע</h2>
-        <span className="section-count">{total}</span>
-      </div>
-      {!collapsed && (
-        <div className="todo-grid">
-          {groups.map(g => <TodoColumn key={g.area.id} group={g} actions={actions} />)}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Does a client (or anything under it) match the search text?
 function clientMatches(q, city, projects) {
   if (city.name.toLowerCase().includes(q)) return true;
   return projects.some(p =>
@@ -220,11 +125,384 @@ function NoAccess({ title, text, back = "/" }) {
 // DASHBOARD VIEW — list of תחומים
 // ───────────────────────────────────────────────────────────
 // Dashboard banner: greeting by time of day + what needs attention today.
-function heroGreeting(date) {
-  const h = date.getHours();
-  return h < 5 ? "לילה טוב" : h < 12 ? "בוקר טוב" : h < 17 ? "צהריים טובים" : h < 21 ? "ערב טוב" : "לילה טוב";
+// ───────────────────────────────────────────────────────────
+// TASK BOARD (concept sketch): overview tiles, review inbox with
+// duplicate actions, board grouped by area / status, reminders and
+// waiting-on-others lists. Reads through the contract only.
+// ───────────────────────────────────────────────────────────
+
+// Every visible task with its area / client / project, so the board never
+// shows what visibleTree hides (private areas).
+function boardRows(data, userEmail) {
+  const rows = [];
+  for (const { area, clients } of window.visibleTree(data, userEmail))
+    for (const { city, projects } of clients)
+      for (const project of projects)
+        for (const task of project.tasks)
+          rows.push({ task, area, city, project, urg: window.TM.urgencyOf(task) });
+  return rows;
 }
-const countLabel = (n, what) => n === 1 ? `משימה אחת ${what}` : `${n} משימות ${what}`;
+
+function rowMatches(q, r) {
+  if (!q) return true;
+  const hay = [r.task.title, r.task.assignee, r.project.name, r.city.name, r.area.name, r.task.notes]
+    .filter(Boolean).join(" ").toLowerCase();
+  return hay.includes(q.toLowerCase());
+}
+
+const URGENT_BUCKETS = { overdue: 1, today: 1, soon: 1 };
+const isOpenRow = (r) => r.task.status !== "done";
+const isBoardRow = (r) => !r.task.awaitingReview;
+
+// "Waiting on others": open board tasks handed to someone else.
+// The contract defers listWaitingOnOthers; until Ido adds it, a task counts
+// when it has an assignee who is not the signed-in user. [לאימות]
+function isWaitingRow(r, me) {
+  const a = (r.task.assignee || "").trim();
+  if (!a || !isOpenRow(r) || !isBoardRow(r)) return false;
+  return !(me && a.includes(me)) && !a.includes("יוסי");
+}
+
+function boardDue(task) {
+  if (!task.due) return "";
+  const n = window.TM.daysUntil(task.due);
+  if (n === 0) return "היום";
+  if (n === 1) return "מחר";
+  if (n < 0) return `באיחור ${-n === 1 ? "יום" : -n + " ימים"}`;
+  return new Date(task.due).toLocaleDateString("he-IL", { day: "numeric", month: "short" });
+}
+
+function DueText({ task, urg }) {
+  const txt = boardDue(task);
+  if (!txt) return null;
+  const cls = urg.bucket === "overdue" ? "is-overdue" : (urg.bucket === "today" || urg.bucket === "soon") ? "is-soon" : "";
+  return <span className={"due " + cls}>{window.Icon.cal}{txt}{task.time ? " · " + task.time : ""}</span>;
+}
+
+function TaskCard({ row, onOpen, compact }) {
+  const { task, area, city, project, urg } = row;
+  const dup = !!(task.dupGroup || task.dupLabel);
+  const cls = ["tcard",
+    urg.bucket === "overdue" && task.status !== "done" ? "is-overdue" : "",
+    dup ? "is-dup" : "",
+    task.status === "done" ? "is-done" : "",
+    "tone-" + window.areaTone(area.id)].filter(Boolean).join(" ");
+  const meta = [project.name, city.name].filter(Boolean);
+  return (
+    <div className={cls} role="button" tabIndex={0} onClick={() => onOpen(row)}
+      onKeyDown={(e) => { if (e.key === "Enter") onOpen(row); }}>
+      {(task.source || dup) && (
+        <div className="tcard-top">
+          <window.SourceChip source={task.source} />
+          <window.DupChip task={task} />
+        </div>
+      )}
+      <div className="tcard-title">{task.title}</div>
+      {!compact && (
+        <div className="tcard-chips">
+          <window.AreaChip area={area} />
+          <window.PriorityChip priority={task.priority} />
+          <window.StatusChip status={task.status} />
+        </div>
+      )}
+      <div className="tcard-meta">
+        {meta.map((m, i) => <span key={i}>{m}</span>)}
+        <DueText task={task} urg={urg} />
+        {task.assignee && <span className="who">{task.assignee}</span>}
+      </div>
+    </div>
+  );
+}
+
+function StatTile({ label, value, sub, tone, active, onClick }) {
+  return (
+    <button type="button" className={"stat tone-" + tone + (active ? " is-active" : "")} onClick={onClick}>
+      <span className="stat-label">{label}</span>
+      <span className="stat-value">{value}</span>
+      {sub && <span className="stat-sub">{sub}</span>}
+    </button>
+  );
+}
+
+function Segmented({ value, options, onChange, label }) {
+  return (
+    <div className="seg" role="tablist" aria-label={label}>
+      {options.map(o => (
+        <button key={o.key} type="button" role="tab" aria-selected={value === o.key}
+          className={value === o.key ? "is-active" : ""} onClick={() => onChange(o.key)}>{o.label}</button>
+      ))}
+    </div>
+  );
+}
+
+// ── Inbox: «חדש מהבוטים / ממתין לסקירה» ──
+function DupPair({ rows, actions, onOpen }) {
+  const [a, b] = rows;
+  const del = (r) => actions.deleteTask(r.city.id, r.project.id, r.task.id);
+  const clear = (r) => actions.resolveDup(r.task.id, {});
+  const keep = (win, lose) => {
+    if (!confirm(`להשאיר את «${win.task.title}» ולמחוק את «${lose.task.title}»?`)) return;
+    del(lose); clear(win);
+  };
+  const merge = () => {
+    if (!confirm(`למזג את «${b.task.title}» לתוך «${a.task.title}»? המשימה השנייה תימחק.`)) return;
+    const A = a.task, B = b.task;
+    const rank = { high: 0, mid: 1, low: 2 };
+    const dues = [A.due, B.due].filter(Boolean).sort();
+    const seen = new Set((A.emails || []).map(e => e.url));
+    const fields = {
+      notes: [A.notes, B.notes && `מוזג מ«${B.title}»: ${B.notes}`].filter(Boolean).join("\n"),
+      emails: [...(A.emails || []), ...(B.emails || []).filter(e => !seen.has(e.url))],
+      priority: rank[B.priority] < rank[A.priority] ? B.priority : A.priority,
+      due: dues[0] || "",
+      assignee: A.assignee || B.assignee || "",
+    };
+    actions.updateTask(a.city.id, a.project.id, A.id, fields);
+    del(b); clear(a);
+  };
+  const keepBoth = () => { clear(a); clear(b); };
+  return (
+    <div className="dup-pair">
+      <div className="dup-head">
+        <span className="chip chip-dup">כפילות אפשרית</span>
+        <span className="dup-label">{a.task.dupLabel || b.task.dupLabel || "שתי משימות דומות"}</span>
+      </div>
+      <div className="dup-cards">
+        {[a, b].map((r, i) => (
+          <div key={r.task.id} className="dup-slot">
+            <span className="dup-letter">{i === 0 ? "א׳" : "ב׳"}{!r.task.awaitingReview && " · כבר בלוח"}</span>
+            <TaskCard row={r} onOpen={onOpen} />
+          </div>
+        ))}
+      </div>
+      <div className="dup-actions">
+        <button className="btn btn-sm" onClick={() => keep(a, b)}>השאר את א׳</button>
+        <button className="btn btn-sm" onClick={() => keep(b, a)}>השאר את ב׳</button>
+        <button className="btn btn-sm" onClick={merge}>מזג</button>
+        <button className="btn btn-sm btn-ghost" onClick={keepBoth}>השאר את שתיהן</button>
+      </div>
+    </div>
+  );
+}
+
+function InboxItem({ row, actions, onOpen }) {
+  const reject = () => {
+    if (confirm(`לדחות ולמחוק את «${row.task.title}»?`))
+      actions.deleteTask(row.city.id, row.project.id, row.task.id);
+  };
+  return (
+    <div className="inbox-item">
+      <TaskCard row={row} onOpen={onOpen} />
+      <div className="inbox-actions">
+        <button className="btn btn-sm btn-primary" onClick={() => actions.approveTask(row.task.id)}>
+          {window.Icon.check}<span>אישור ותיוק</span>
+        </button>
+        <button className="btn btn-sm" onClick={() => onOpen(row)}>{window.Icon.edit}<span>עריכה</span></button>
+        <button className="btn btn-sm btn-ghost" onClick={reject}>דחייה</button>
+      </div>
+    </div>
+  );
+}
+
+function Inbox({ rows, allRows, actions, onOpen }) {
+  // Duplicate groups that touch the queue; the other member may already be on the board.
+  const groups = new Map();
+  for (const r of allRows) {
+    if (!r.task.dupGroup || !isOpenRow(r)) continue;
+    if (!groups.has(r.task.dupGroup)) groups.set(r.task.dupGroup, []);
+    groups.get(r.task.dupGroup).push(r);
+  }
+  const pairs = [], inPair = new Set();
+  for (const g of groups.values()) {
+    if (g.length < 2 || !g.some(r => r.task.awaitingReview)) continue;
+    const two = g.slice(0, 2);
+    pairs.push(two);
+    two.forEach(r => inPair.add(r.task.id));
+  }
+  const singles = rows.filter(r => !inPair.has(r.task.id));
+  return (
+    <section className="panel inbox" id="inbox">
+      <div className="panel-head">
+        <h2>חדש מהבוטים <span className="muted">/ ממתין לסקירה</span></h2>
+        <span className="count">{rows.length}</span>
+      </div>
+      {rows.length === 0 ? (
+        <div className="panel-empty">אין משימות שממתינות לסקירה.</div>
+      ) : (
+        <div className="inbox-list">
+          {pairs.map(p => <DupPair key={p[0].task.dupGroup} rows={p} actions={actions} onOpen={onOpen} />)}
+          {singles.map(r => <InboxItem key={r.task.id} row={r} actions={actions} onOpen={onOpen} />)}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ── Board ──
+const byUrgency = (a, b) => b.urg.score - a.urg.score
+  || (a.task.due ? 0 : 1) - (b.task.due ? 0 : 1);
+
+function Board({ rows, tree, groupBy, onGroupBy, onOpen, filter, onClearFilter, extraControls, children }) {
+  const columns = vUseMemo(() => {
+    if (groupBy === "status") {
+      return window.TM.STATUSES.map(s => {
+        const items = rows.filter(r => r.task.status === s.key).sort(byUrgency);
+        return { key: s.key, title: s.label, tone: "st-" + s.key, items: s.key === "done" ? items.slice(0, 8) : items, more: s.key === "done" ? Math.max(0, items.length - 8) : 0 };
+      });
+    }
+    return tree.map(({ area }) => ({
+      key: area.id, title: area.name, tone: "tone-" + window.areaTone(area.id),
+      items: rows.filter(r => r.area.id === area.id && isOpenRow(r)).sort(byUrgency), more: 0,
+    })).filter(c => c.items.length || !String(c.key).startsWith("__"));
+  }, [rows, tree, groupBy]);
+
+  return (
+    <section className="panel board">
+      <div className="panel-head">
+        <h2>לוח המשימות</h2>
+        {filter && (
+          <button className="chip chip-filter" onClick={onClearFilter}>{filter.label}{window.Icon.x}</button>
+        )}
+        <span className="spacer" />
+        {extraControls}
+        <Segmented label="קיבוץ" value={groupBy} onChange={onGroupBy}
+          options={[{ key: "area", label: "לפי תחום" }, { key: "status", label: "לפי סטטוס" }]} />
+      </div>
+      {children || (
+        <div className="board-cols">
+          {columns.map(col => (
+            <div key={col.key} className={"board-col " + col.tone}>
+              <div className="board-col-head">
+                <span className="dot" />
+                <span className="name">{col.title}</span>
+                <span className="count">{col.items.length + col.more}</span>
+              </div>
+              <div className="board-col-body">
+                {col.items.length === 0 && <div className="panel-empty">אין משימות</div>}
+                {col.items.map(r => <TaskCard key={r.task.id} row={r} onOpen={onOpen} />)}
+                {col.more > 0 && <div className="col-more">ועוד {col.more} שהושלמו</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function RowList({ title, rows, empty, onOpen, render }) {
+  return (
+    <section className="panel rowlist">
+      <div className="panel-head">
+        <h2>{title}</h2>
+        <span className="count">{rows.length}</span>
+      </div>
+      {rows.length === 0 ? <div className="panel-empty">{empty}</div> : (
+        <ul>
+          {rows.map(r => (
+            <li key={r.task.id}>
+              <button type="button" className={"rl-row tone-" + window.areaTone(r.area.id)} onClick={() => onOpen(r)}>
+                <span className="rl-bar" />
+                <span className="rl-main">
+                  <span className="rl-title">{r.task.title}</span>
+                  <span className="rl-sub">{[r.project.name, r.city.name].filter(Boolean).join(" · ")}</span>
+                </span>
+                <span className="rl-side">{render(r)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+const TILE_FILTERS = {
+  urgent:  { label: "דחוף פתוח",     test: (r) => isOpenRow(r) && !!URGENT_BUCKETS[r.urg.bucket] },
+  doing:   { label: "בתהליך",        test: (r) => r.task.status === "doing" },
+  waiting: { label: "ממתין לאחרים",  test: null },
+};
+
+function TaskBoard({ data, actions, search, userEmail, userName }) {
+  const [groupBy, setGroupBy] = vUseState(() => {
+    try { return localStorage.getItem("tm_board_group") || "area"; } catch (e) { return "area"; }
+  });
+  const [tile, setTile] = vUseState(null);
+  const [editing, setEditing] = vUseState(null);
+  const me = (userName || "").split(" ")[0];
+  const setGroup = (g) => { setGroupBy(g); try { localStorage.setItem("tm_board_group", g); } catch (e) {} };
+
+  const tree = vUseMemo(() => window.visibleTree(data, userEmail), [data, userEmail]);
+  const allRows = vUseMemo(() => boardRows(data, userEmail), [data, userEmail]);
+  const rows = vUseMemo(() => allRows.filter(r => rowMatches(search, r)), [allRows, search]);
+
+  const inbox = rows.filter(r => r.task.awaitingReview && isOpenRow(r));
+  const board = rows.filter(isBoardRow);
+  const open = board.filter(isOpenRow);
+  const urgent = open.filter(TILE_FILTERS.urgent.test);
+  const overdue = urgent.filter(r => r.urg.bucket === "overdue").length;
+  const doing = open.filter(TILE_FILTERS.doing.test);
+  const waiting = board.filter(r => isWaitingRow(r, me));
+  const reminders = open
+    .filter(r => r.task.due && r.urg.daysUntil >= 0 && r.urg.daysUntil <= 7)
+    .sort((a, b) => (a.task.due + (a.task.time || "")).localeCompare(b.task.due + (b.task.time || "")));
+
+  const boardShown = !tile ? board
+    : tile === "waiting" ? waiting
+    : board.filter(TILE_FILTERS[tile].test);
+
+  const toggle = (k) => setTile(t => t === k ? null : k);
+  const openRow = (r) => setEditing(r);
+  const scrollInbox = () => {
+    const el = document.getElementById("inbox");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  return (
+    <div className="tb">
+      <div className="tb-head">
+        <h1 className="tb-title">{new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" })}</h1>
+      </div>
+
+      <div className="stats">
+        <StatTile tone="review" label="ממתין לסקירה" value={inbox.length} sub="מהבוטים" onClick={scrollInbox} />
+        <StatTile tone="urgent" label="דחוף פתוח" value={urgent.length}
+          sub={overdue ? `${overdue} באיחור` : "עד 3 ימים"} active={tile === "urgent"} onClick={() => toggle("urgent")} />
+        <StatTile tone="doing" label="בתהליך" value={doing.length} active={tile === "doing"} onClick={() => toggle("doing")} />
+        <StatTile tone="waiting" label="ממתין לאחרים" value={waiting.length} active={tile === "waiting"} onClick={() => toggle("waiting")} />
+      </div>
+
+      <div className="tb-grid">
+        <div className="tb-main">
+          <Inbox rows={inbox} allRows={rows} actions={actions} onOpen={openRow} />
+          <Board rows={boardShown} tree={tree} groupBy={groupBy} onGroupBy={setGroup} onOpen={openRow}
+            filter={tile ? TILE_FILTERS[tile] : null} onClearFilter={() => setTile(null)} />
+        </div>
+        <aside className="tb-aside">
+          <RowList title="תזכורות קרובות" rows={reminders.slice(0, 8)} empty="אין תזכורות בשבוע הקרוב"
+            onOpen={openRow} render={(r) => <DueText task={r.task} urg={r.urg} />} />
+          <RowList title="ממתין לאחרים" rows={waiting.slice(0, 8)} empty="אין משימות שממתינות לאחרים"
+            onOpen={openRow} render={(r) => <span className="who">{r.task.assignee}</span>} />
+        </aside>
+      </div>
+
+      {editing && (
+        <window.TaskModal
+          task={editing.task}
+          context={{ area: editing.area, city: editing.city, project: editing.project }}
+          projectTasks={editing.project.tasks}
+          onClose={() => setEditing(null)}
+          onSave={(fields) => {
+            actions.updateTask(editing.city.id, editing.project.id, editing.task.id, fields);
+            setEditing(null);
+          }}
+          onApprove={() => actions.approveTask(editing.task.id)}
+          onDelete={() => actions.deleteTask(editing.city.id, editing.project.id, editing.task.id)}
+        />
+      )}
+    </div>
+  );
+}
 
 function DashboardView({ data, actions, search, userEmail, userName }) {
   const [collapsed, setCollapsed] = vUseState(false);
@@ -232,22 +510,8 @@ function DashboardView({ data, actions, search, userEmail, userName }) {
   const [editArea, setEditArea] = vUseState(null);
   const [confirmDel, setConfirmDel] = vUseState(null);
 
-  const summary = vUseMemo(() => window.summarize(data, userEmail), [data, userEmail]);
   const tree = vUseMemo(() => window.visibleTree(data, userEmail), [data, userEmail]);
   const drag = window.useDragList((from, to) => actions.reorderAreas(from, to));
-  const now = new Date();
-  const firstName = !window.IS_DEV && userName ? userName.split(" ")[0] : "";
-  const focus = vUseMemo(() => {
-    let dueToday = 0, overdue = 0;
-    for (const { items } of window.buildTodos(data, userEmail)) {
-      for (const { task } of items) {
-        const n = window.TM.daysUntil(task.due);
-        if (n === 0) dueToday++;
-        else if (n < 0) overdue++;
-      }
-    }
-    return { dueToday, overdue };
-  }, [data, userEmail]);
 
   const filteredTree = vUseMemo(() => {
     if (!search) return tree;
@@ -259,54 +523,17 @@ function DashboardView({ data, actions, search, userEmail, userName }) {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <span className="hero-eyebrow">{now.toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" })}</span>
-          <h1 className="page-title">{heroGreeting(now)}{firstName && `, ${firstName}`}</h1>
-          <div className="hero-chips">
-            {focus.dueToday > 0 && <span className="hero-chip">{window.Icon.cal}{countLabel(focus.dueToday, "להיום")}</span>}
-            {focus.overdue > 0 && <span className="hero-chip is-warn">{countLabel(focus.overdue, "באיחור")}</span>}
-            {focus.dueToday === 0 && focus.overdue === 0 && <span className="hero-chip">{window.Icon.check}אין משימות דחופות היום</span>}
-            <span className="hero-chip is-soft">{summary.overall}% מהמשימות הושלמו</span>
-          </div>
-        </div>
-        <button className="btn btn-primary" onClick={() => setShowAreaModal(true)}>
-          {window.Icon.plus}<span>הוסף תחום</span>
-        </button>
-      </div>
-
-      <div className="kpis">
-        <div className="kpi k-areas">
-          <div className="kpi-label">תחומים</div>
-          <div className="kpi-value">{summary.areas}</div>
-          <div className="kpi-sub">{summary.clients} מזמיני עבודה</div>
-        </div>
-        <div className="kpi k-projects">
-          <div className="kpi-label">פרויקטים</div>
-          <div className="kpi-value">{summary.projects}</div>
-        </div>
-        <div className="kpi k-tasks">
-          <div className="kpi-label">משימות</div>
-          <div className="kpi-value">{summary.tasks}</div>
-          <div className="kpi-sub">{summary.doingTasks} בתהליך · {summary.doneTasks} הושלמו</div>
-        </div>
-        <div className="kpi k-progress">
-          <div className="kpi-label">התקדמות כוללת</div>
-          <div className="kpi-value">{summary.overall}%</div>
-          <div className="kpi-sub" style={{ marginTop: 10 }}>
-            <window.Progress value={summary.overall} showPct={false} />
-          </div>
-        </div>
-      </div>
-
-      {!search && <TodoPanel data={data} actions={actions} userEmail={userEmail} />}
+      <TaskBoard data={data} actions={actions} search={search} userEmail={userEmail} userName={userName} />
 
       <div className="section">
         <div className="section-head">
           <window.CollapseToggle collapsed={collapsed} onToggle={() => setCollapsed(v => !v)} />
-          <h2>תחומים</h2>
+          <h2>תחומים ופרויקטים</h2>
           <span className="section-count">{filteredTree.length}</span>
           <div className="section-spacer" />
+          <button className="btn btn-sm" onClick={() => setShowAreaModal(true)}>
+            {window.Icon.plus}<span>הוסף תחום</span>
+          </button>
         </div>
 
         {!collapsed && (
@@ -1043,4 +1270,4 @@ function ProjectView({ data, actions, search, cityId, projectId, userEmail }) {
   );
 }
 
-Object.assign(window, { TopBar, Crumbs, DashboardView, AreaView, CityView, ProjectView });
+Object.assign(window, { TopBar, Crumbs, TaskBoard, TaskCard, DashboardView, AreaView, CityView, ProjectView });

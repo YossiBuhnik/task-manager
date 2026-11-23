@@ -24,6 +24,8 @@ const Icon = {
   list:    <svg className="ico" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>,
   flow:    <svg className="ico" viewBox="0 0 24 24"><rect x="15" y="3" width="6" height="6" rx="1.5"/><rect x="3" y="15" width="6" height="6" rx="1.5"/><rect x="3" y="3" width="6" height="6" rx="1.5"/><path d="M15 6H9M18 9v3a3 3 0 01-3 3H9"/></svg>,
   x:       <svg className="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>,
+  moon:    <svg className="ico" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z"/></svg>,
+  sun:     <svg className="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>,
   users:   <svg className="ico" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M14.5 14.5c1-.3 1.8-.5 2.5-.5 2.8 0 5 2.2 5 5"/></svg>,
 };
 
@@ -151,6 +153,37 @@ function celebrateDone(anchor, task, project) {
 function StatusPill({ status }) {
   const s = window.TM.STATUS_BY_KEY[status] || window.TM.STATUSES[0];
   return <span className={"pill " + s.pill}>{s.label}</span>;
+}
+
+// ─── Board chips (task-board sketch) ───────────────────────
+// Fixed categorical colors for the three known areas; other areas fall back
+// to the stable hash palette in data.js.
+const AREA_TONES = { area_office: "office", area_pm: "pm", area_qa: "qa" };
+function areaTone(areaId) {
+  return AREA_TONES[areaId] || ("hash-" + window.TM.areaColorFor(areaId).key);
+}
+function SourceChip({ source }) {
+  if (!source) return null;
+  const s = window.TM.SOURCE_BY_KEY[source];
+  return <span className={"chip chip-src src-" + source}>{s ? s.label : source}</span>;
+}
+function DupChip({ task }) {
+  if (!task || !(task.dupGroup || task.dupLabel)) return null;
+  return <span className="chip chip-dup" title="ייתכן כפילות">{task.dupLabel || "כפילות אפשרית"}</span>;
+}
+function AreaChip({ area }) {
+  if (!area) return null;
+  return <span className={"chip chip-area tone-" + areaTone(area.id)}>{area.name}</span>;
+}
+function PriorityChip({ priority }) {
+  const p = window.TM.PRIORITY_BY_KEY[priority];
+  if (!p) return null;
+  return <span className={"chip chip-prio prio-" + priority}>{p.label}</span>;
+}
+function StatusChip({ status }) {
+  const s = window.TM.STATUS_BY_KEY[status];
+  if (!s) return null;
+  return <span className={"chip chip-status st-" + status}>{s.label}</span>;
 }
 
 // ─── App logo glyph (progress ring + check, same as icons/*.png) ──
@@ -502,7 +535,7 @@ function DependsField({ taskId, tasks, value, onChange }) {
 }
 
 // ─── Task modal ─────────────────────────────────────────────
-function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete }) {
+function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onApprove, context }) {
   const [t, setT] = useState({
     title: task?.title || "",
     status: task?.status || "todo",
@@ -548,13 +581,21 @@ function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete }) {
     });
   };
   const hasTime = !!t.time;
+  // Inbox items: save the edits and move the task to the board in one step.
+  const approveAndFile = () => {
+    if (!t.title.trim()) return;
+    submit();
+    onApprove && onApprove();
+  };
+  const reviewing = !!(task && task.awaitingReview && onApprove);
   return (
     <Modal
-      title={task ? "עריכת משימה" : "הוספת משימה"}
+      title={task ? (reviewing ? "סקירת משימה" : "עריכת משימה") : "הוספת משימה"}
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-primary" onClick={submit}>שמירה</button>
+          {reviewing && <button className="btn btn-primary" onClick={approveAndFile}>{Icon.check}<span>אישור ותיוק</span></button>}
+          <button className={reviewing ? "btn" : "btn btn-primary"} onClick={submit}>שמירה</button>
           <button className="btn" onClick={onClose}>ביטול</button>
           {task && onDelete && (
             <>
@@ -565,6 +606,14 @@ function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete }) {
         </>
       }
     >
+      {task && (task.source || task.dupGroup || task.dupLabel || context) && (
+        <div className="task-context">
+          <SourceChip source={task.source} />
+          <DupChip task={task} />
+          {context && context.area && <AreaChip area={context.area} />}
+          {context && <span className="task-context-path">{[context.project && context.project.name, context.city && context.city.name].filter(Boolean).join(" · ")}</span>}
+        </div>
+      )}
       <div className="field">
         <label>כותרת</label>
         <input autoFocus value={t.title} onChange={(e) => set("title", e.target.value)} />
@@ -708,7 +757,8 @@ function useDragList(onReorder) {
 }
 
 Object.assign(window, {
-  Icon, BrandGlyph, Progress, StatusPill, CollapseToggle, celebrateDone,
+  Icon, BrandGlyph, Progress, StatusPill,
+  SourceChip, DupChip, AreaChip, PriorityChip, StatusChip, areaTone, CollapseToggle, celebrateDone,
   toastInfo: (title, sub) => toast(title, sub, { info: true }),
   Modal, AreaModal, CityModal, VisibilityPicker, ProjectModal, TaskModal, ConfirmModal,
   useDragList,

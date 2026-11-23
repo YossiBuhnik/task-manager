@@ -14,13 +14,43 @@ const ACCENT_MAP = {
   "#1f2937": "graphite",
 };
 
+// ─── Theme (night mode) ──────────────────────────────────────
+// html[data-theme] = "dark" | "light". Saved choice wins; otherwise dark
+// unless the device prefers light. Set before the first render.
+const THEME_KEY = "tm-theme";
+const THEME_BAR = { dark: "#0b1220", light: "#4f46e5" };
+function initialTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === "dark" || saved === "light") return saved;
+  } catch (e) {}
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", THEME_BAR[theme]);
+}
+applyTheme(initialTheme());
+
+function useTheme() {
+  const [theme, setTheme] = React.useState(() => document.documentElement.getAttribute("data-theme") || "dark");
+  const toggle = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    applyTheme(next);
+    try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+    setTheme(next);
+  };
+  return [theme, toggle];
+}
+
 // ─── Sign-in screen ──────────────────────────────────────────
 function SignInScreen({ onSignIn }) {
   return (
     <div className="signin">
       <div className="signin-card">
         <div className="signin-mark"><window.BrandGlyph /></div>
-        <h1>מנהל פרויקטים</h1>
+        <h1>{window.TM.APP_NAME}</h1>
         <p>התחבר כדי לסנכרן את הנתונים שלך עם הצוות, בין המכשירים, באופן מיידי.</p>
         <button className="btn-google" onClick={onSignIn}>
           <svg width="18" height="18" viewBox="0 0 48 48">
@@ -95,6 +125,7 @@ function Workspace({ cloud, installPrompt, onInstall }) {
   const route = window.useRoute();
   const [search, setSearch] = React.useState("");
   const [t, setTweak] = window.useTweaks(TWEAK_DEFAULTS);
+  const [theme, toggleTheme] = useTheme();
   const fileInputRef = React.useRef(null);
 
   React.useEffect(() => {
@@ -157,7 +188,7 @@ function Workspace({ cloud, installPrompt, onInstall }) {
   return (
     <div className="app">
       <CloudBadge cloud={cloud} installPrompt={installPrompt} onInstall={onInstall} />
-      <window.TopBar search={search} onSearchChange={setSearch} />
+      <window.TopBar search={search} onSearchChange={setSearch} theme={theme} onToggleTheme={toggleTheme} />
       {body}
 
       <footer className="data-tools">
