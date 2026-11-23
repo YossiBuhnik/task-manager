@@ -191,6 +191,11 @@ After a successful migration and Yossi's approval:
 
 `replaceAll` / `resetSeed` (import JSON / reset to sample data) are local and demo only; they are disabled when signed in to the cloud.
 
+## Bot-write bridge (PR2)
+
+Bots write through the Apps Script web app in `bridge/` (see `bridge/README.md` and `BOT-WRITE-SPEC.md`). Do not deploy it until Yossi approves. Until Script Property `MIGRATION_DONE` is `"true"`, the bridge refuses writes. Tokens and the service-account JSON live only in Script Properties, never in this repo.
+
+
 Private-area enforcement and "only Yossi may edit a bot-inserted task" in the client match the draft rules. After the rules are published, private areas are also enforced on the server by `owner`. Until they are published, the soft-privacy caveat in the visibility section still applies to the live project.
 
 ## Troubleshooting
