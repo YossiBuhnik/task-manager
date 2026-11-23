@@ -105,16 +105,24 @@ is("1–721 invalid", !TM.isValidDuration(1, 721));
 is("10–9 invalid", !TM.isValidDuration(10, 9));
 is("1.5–2 invalid", !TM.isValidDuration(1.5, 2));
 is("null invalid", !TM.isValidDuration(null, 10));
-eq("equal → one number", TM.formatDuration(10, 10), "10");
-eq("range uses en-dash", TM.formatDuration(10, 30), "10–30");
+eq("equal → one number", TM.formatDuration(10, 10), "10 דק׳");
+eq("range uses en-dash", TM.formatDuration(10, 30), "10–30 דק׳");
+eq("minutes under an hour", TM.formatDuration(5, 10), "5–10 דק׳");
+eq("equal minutes", TM.formatDuration(30, 30), "30 דק׳");
+eq("hours on the half hour", TM.formatDuration(240, 360), "4–6 שע׳");
+eq("hours one decimal", TM.formatDuration(90, 120), "1.5–2 שע׳");
+eq("one hour", TM.formatDuration(60, 60), "1 שע׳");
+eq("not on the half hour stays minutes", TM.formatDuration(45, 75), "45–75 דק׳");
 eq("invalid format empty", TM.formatDuration(0, 10), "");
-eq("task equal range", TM.formatDuration({ durationMin: 15, durationMax: 15 }), "15");
-eq("legacy duration field", TM.formatDuration({ duration: 60 }), "60");
+eq("task equal range", TM.formatDuration({ durationMin: 15, durationMax: 15 }), "15 דק׳");
+eq("legacy duration field", TM.formatDuration({ duration: 60 }), "1 שע׳");
 
 console.log("constants");
 eq("APP_NAME", TM.APP_NAME, "מנהל המשימות");
 eq("DURATION bounds", [TM.DURATION.MIN, TM.DURATION.MAX], [1, 720]);
 eq("michal-mail label", TM.SOURCE_BY_KEY["michal-mail"].label, "מיכל · מייל");
+eq("shaked label", TM.SOURCE_BY_KEY.shaked.label, "שקד · ראש מטה");
+eq("shaked is a bot source", TM.BOT_SOURCES.indexOf("shaked") !== -1, true);
 
 console.log("");
 console.log(passed + " passed, " + failed + " failed");

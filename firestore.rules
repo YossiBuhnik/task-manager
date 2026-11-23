@@ -56,7 +56,7 @@ service cloud.firestore {
     }
 
     function isBotSource(data) {
-      return data.source in ["michal-mail", "ron-site", "noga-tour", "joe", "ido"];
+      return data.source in ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked"];
     }
 
     // Client (signed-in) creates may only use manual / yossi sources.
@@ -87,7 +87,7 @@ service cloud.firestore {
         && data.areaId is string
         && isIsoDateOrEmpty(data.due)
         && validDuration(data)
-        && data.source in ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "yossi", ""]
+        && data.source in ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked", "yossi", ""]
         && data.awaitingReview is bool
         && (!("visibility" in data) || data.visibility in ["shared", "private"])
         && (!("owner" in data) || data.owner == null || data.owner is string);
