@@ -40,11 +40,12 @@
     { key: "noga-tour",   label: "נגה · סיור" },
     { key: "joe",         label: "ג'ו · סגירת יום" },
     { key: "ido",         label: "עידו · פיתוח" },
+    { key: "shaked",      label: "שקד · ראש מטה" },
     { key: "yossi",       label: "יוסי · האפליקציה" },
     { key: "",            label: "ידני / לא ידוע" },
   ];
   const SOURCE_BY_KEY = Object.fromEntries(SOURCES.map(s => [s.key, s]));
-  const BOT_SOURCES = Object.freeze(["michal-mail", "ron-site", "noga-tour", "joe", "ido"]);
+  const BOT_SOURCES = Object.freeze(["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked"]);
 
   // ─── id helper ──────────────────────────────────────────────
   const uid = (p = "id") =>
@@ -581,7 +582,16 @@
   const formatDuration = (taskOrMin, max) => {
     const [lo, hi] = durationRangeOf(taskOrMin, max);
     if (!isValidDuration(lo, hi)) return "";
-    return lo === hi ? String(lo) : lo + "–" + hi;
+    const asHours = hi >= 60 && lo % 30 === 0 && hi % 30 === 0;
+    const text = (n) => {
+      if (!asHours) return String(n);
+      const tenths = Math.round(n / 6);
+      const whole = Math.trunc(tenths / 10);
+      const frac = tenths % 10;
+      return frac === 0 ? String(whole) : whole + "." + frac;
+    };
+    const body = lo === hi ? text(lo) : text(lo) + "–" + text(hi);
+    return body + " " + (asHours ? "שע׳" : "דק׳");
   };
 
   // ─── per-area color palette (stable, hash-based) ────────────
