@@ -29,6 +29,25 @@
   ];
   const PRIORITY_BY_KEY = Object.fromEntries(PRIORITIES.map(p => [p.key, p]));
 
+  // ─── task-board contract (PR0, additive) ───────────────────
+  const APP_NAME = "מנהל המשימות";
+  const STATUS = Object.freeze({ TODO: "todo", DOING: "doing", DONE: "done" });
+  const PRIORITY = Object.freeze({ HIGH: "high", MID: "mid", LOW: "low" });
+  const DURATION = Object.freeze({ MIN: 1, MAX: 14400 });
+  const DURATION_UNITS = Object.freeze(["min", "hour", "day"]);
+  const SOURCES = [
+    { key: "michal-mail", label: "מיכל · מייל" },
+    { key: "ron-site",    label: "רון · פיקוח" },
+    { key: "noga-tour",   label: "נגה · סיור" },
+    { key: "joe",         label: "ג'ו · סגירת יום" },
+    { key: "ido",         label: "עידו · פיתוח" },
+    { key: "shaked",      label: "שקד · ראש מטה" },
+    { key: "yossi",       label: "יוסי · האפליקציה" },
+    { key: "",            label: "ידני / לא ידוע" },
+  ];
+  const SOURCE_BY_KEY = Object.fromEntries(SOURCES.map(s => [s.key, s]));
+  const BOT_SOURCES = Object.freeze(["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked"]);
+
   // ─── id helper ──────────────────────────────────────────────
   const uid = (p = "id") =>
     p + "_" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
@@ -487,6 +506,131 @@
     return overdue + (PRIO_BONUS[task.priority] ?? 0) + age / 4;
   };
 
+  // daysUntil() is unchanged (always relative to the device's today).
+  // This variant pins the base day so urgency helpers and tests are deterministic.
+  const daysUntilFrom = (due, today) => {
+    if (today == null) return daysUntil(due);
+    if (!due) return null;
+    const dt = new Date(due);
+    if (isNaN(dt)) return null;
+    const base = new Date(today);
+    if (isNaN(base)) return null;
+    base.setHours(0, 0, 0, 0);
+    dt.setHours(0, 0, 0, 0);
+    return Math.round((dt - base) / 86400000);
+  };
+
+  // Same formula as todoScore, optionally pinned to `today`. todoScore itself is unchanged.
+  const todoScoreFrom = (task, today) => {
+    if (!task) return 0;
+    if (today == null) return todoScore(task);
+    const overdue = -daysUntilFrom(task.due, today);
+    const age = task.createdAt ? Math.max(0, -daysUntilFrom(task.createdAt, today)) : 0;
+    return overdue + (PRIO_BONUS[task.priority] ?? 0) + age / 4;
+  };
+
+  const urgencyOf = (task, today) => {
+    const days = daysUntilFrom(task && task.due, today);
+    let bucket = "none";
+    if (days != null) {
+      if (days < 0) bucket = "overdue";
+      else if (days === 0) bucket = "today";
+      else if (days <= 3) bucket = "soon";
+      else bucket = "later";
+    }
+    return { bucket, score: todoScoreFrom(task, today), daysUntil: days };
+  };
+
+  const isOpenTask = (task) => !!task && task.status !== STATUS.DONE;
+  const hasDueDate = (task) => !!(task && task.due);
+
+  // Open approved tasks that have a due date, score descending.
+  // No-due and awaitingReview tasks are excluded unless opted in.
+  // Confirmed: phone top-urgent shows approved tasks only.
+  const listByUrgency = (tasks, { includeDone = false, includeAwaitingReview = false, today } = {}) =>
+    (tasks || [])
+      .filter((t) => (includeDone || isOpenTask(t)) && hasDueDate(t))
+      .filter((t) => includeAwaitingReview || !t.awaitingReview)
+      .slice()
+      .sort((a, b) => urgencyOf(b, today).score - urgencyOf(a, today).score);
+
+  const listTopUrgent = (tasks, { limit = 3, today } = {}) =>
+    listByUrgency(tasks, { includeDone: false, includeAwaitingReview: false, today })
+      .slice(0, Math.max(0, Number(limit) || 0));
+
+  const listInbox = (tasks) =>
+    (tasks || []).filter((t) => t && t.awaitingReview && isOpenTask(t));
+
+  const isValidDuration = (min, max) => {
+    const a = typeof min === "number" ? min : Number(min);
+    const b = typeof max === "number" ? max : Number(max);
+    return Number.isInteger(a) && Number.isInteger(b)
+      && a >= DURATION.MIN && b <= DURATION.MAX && a <= b;
+  };
+
+  const durationRangeOf = (taskOrMin, max) => {
+    if (taskOrMin != null && typeof taskOrMin === "object") {
+      let lo = taskOrMin.durationMin;
+      let hi = taskOrMin.durationMax;
+      if (lo == null && hi == null && taskOrMin.duration != null) {
+        lo = hi = taskOrMin.duration;
+      }
+      return [lo, hi];
+    }
+    return [taskOrMin, max];
+  };
+
+  // A day is 8 work hours = 480 minutes [לאימות].
+  const DAY_MINUTES = 480;
+
+  const toMinutes = (value, unit) => {
+    const n = typeof value === "number" ? value : Number(value);
+    if (unit === "hour") return n * 60;
+    if (unit === "day") return n * DAY_MINUTES;
+    return n;
+  };
+
+  const formatInUnit = (mins, unit) => {
+    if (unit === "min") return String(mins);
+    const per = unit === "day" ? DAY_MINUTES : 60;
+    const tenths = Math.round((mins / per) * 10);
+    const whole = Math.trunc(tenths / 10);
+    const frac = tenths % 10;
+    return frac === 0 ? String(whole) : whole + "." + frac;
+  };
+
+  const autoDurationUnit = (lo, hi) => {
+    if (hi < 60) return "min";
+    if (hi >= DAY_MINUTES && lo % DAY_MINUTES === 0 && hi % DAY_MINUTES === 0) return "day";
+    if (hi >= 60 && lo % 30 === 0 && hi % 30 === 0) return "hour";
+    return "min";
+  };
+
+  const durationUnitLabel = (unit, shown, equal) => {
+    if (unit === "hour") return "שע׳";
+    if (unit === "day") return equal && shown === "1" ? "יום" : "ימים";
+    return "דק׳";
+  };
+
+  const formatDuration = (taskOrMin, max, unit) => {
+    let lo, hi, chosen;
+    if (taskOrMin != null && typeof taskOrMin === "object") {
+      [lo, hi] = durationRangeOf(taskOrMin);
+      chosen = (typeof max === "string" ? max : null) || taskOrMin.durationUnit || null;
+    } else {
+      lo = taskOrMin;
+      hi = max;
+      chosen = unit || null;
+    }
+    if (!isValidDuration(lo, hi)) return "";
+    const u = chosen && DURATION_UNITS.indexOf(chosen) !== -1 ? chosen : autoDurationUnit(lo, hi);
+    const a = formatInUnit(lo, u);
+    const b = formatInUnit(hi, u);
+    const equal = lo === hi;
+    const body = equal ? a : a + "–" + b;
+    return body + " " + durationUnitLabel(u, a, equal);
+  };
+
   // ─── per-area color palette (stable, hash-based) ────────────
   const AREA_COLORS = [
     { key: "indigo", bar: "#6366f1", soft: "#eef2ff", ink: "#3730a3" },
@@ -508,6 +652,7 @@
     STANDARD_TASKS,
     STATUSES, STATUS_BY_KEY,
     PRIORITIES, PRIORITY_BY_KEY,
+    APP_NAME, STATUS, PRIORITY, DURATION, DURATION_UNITS, SOURCES, SOURCE_BY_KEY, BOT_SOURCES,
     AREA_COLORS, areaColorFor,
     SEED,
     uid,
@@ -520,5 +665,7 @@
     DEFAULT_AREAS, migrate,
     newArea, newCity, newProject, newTask, standardTasks,
     canSee, todoScore,
+    urgencyOf, listByUrgency, listTopUrgent, listInbox,
+    isValidDuration, formatDuration, toMinutes,
   };
 })();

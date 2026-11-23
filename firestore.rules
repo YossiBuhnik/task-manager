@@ -1,0 +1,143 @@
+// DRAFT — NOT DEPLOYED.
+// Deploy only after Yossi approves. Until then the live Firebase project
+// is unchanged.
+//
+// The only human Google account is yossib@tskeng-il.co.il (Yossi).
+// Bots have no Google accounts. Joe has no Google login; he acts through
+// a bridge token. Service-account / Admin SDK writes bypass these rules
+// entirely, so they are not a permitted bot path: all bot writes
+// (including calendar-agent and tasks_app.py) must go through the Apps
+// Script bridge, which enforces per-bot tokens, authorization (including
+// Joe approve / markDone), private-area policy, idempotency, and audit.
+//
+// Assumes the PR1 task schema (including durationMin/durationMax,
+// source, awaitingReview, visibility, owner). Deploy after those
+// documents exist (practically after PR1 / PR3), not before.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Yossi only. Joe is not a Google account; his powers live in the bridge.
+    function allowedEmails() {
+      return ["yossib@tskeng-il.co.il"];
+    }
+
+    // Client-side admin (approve / markDone / edit of bot-inserted tasks).
+    // Same person as allowedEmails today. Joe is authorized only at the bridge.
+    function taskAdmins() {
+      return ["yossib@tskeng-il.co.il"];
+    }
+
+    function isTeamMember() {
+      return isSignedIn() && request.auth.token.email in allowedEmails();
+    }
+
+    function isTaskAdmin() {
+      return isSignedIn() && request.auth.token.email in taskAdmins();
+    }
+
+    function isPrivate(data) {
+      return data.visibility == "private";
+    }
+
+    function isOwner(data) {
+      return data.owner != null && data.owner == request.auth.token.email;
+    }
+
+    // Private items are readable only by their owner (matches TM.canSee).
+    // Shared or unset visibility is visible to any team member.
+    function canReadItem(data) {
+      return !isPrivate(data) || isOwner(data);
+    }
+
+    function isBotSource(data) {
+      return data.source in ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked"];
+    }
+
+    // Client (signed-in) creates may only use manual / yossi sources.
+    // Bot sources are written through the Apps Script endpoint (admin / SA).
+    function clientMayWriteSource(data) {
+      return data.source in ["", "yossi"];
+    }
+
+    function isIsoDateOrEmpty(s) {
+      return s is string && (s == "" || s.matches("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"));
+    }
+
+    function validDuration(data) {
+      return data.durationMin is int
+        && data.durationMax is int
+        && data.durationMin >= 1
+        && data.durationMax <= 14400
+        && data.durationMin <= data.durationMax
+        && (!("durationUnit" in data) || data.durationUnit in ["min", "hour", "day"]);
+    }
+
+    function validTask(data) {
+      return data.id is string
+        && data.title is string
+        && data.status in ["todo", "doing", "done"]
+        && data.priority in ["high", "mid", "low"]
+        && data.projectId is string
+        && data.cityId is string
+        && data.areaId is string
+        && isIsoDateOrEmpty(data.due)
+        && validDuration(data)
+        && data.source in ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked", "yossi", ""]
+        && data.awaitingReview is bool
+        && (!("visibility" in data) || data.visibility in ["shared", "private"])
+        && (!("owner" in data) || data.owner == null || data.owner is string);
+    }
+
+    // Bot-inserted tasks: only signed-in Yossi may edit or mark done
+    // via the client. Joe does this through the bridge (SA bypasses rules).
+    // Manual / yossi tasks: the allowlisted signed-in user who can read the item.
+    function canEditTask(existing) {
+      return canReadItem(existing) && (!isBotSource(existing) || isTaskAdmin());
+    }
+
+    function visibilityUnchanged() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return after.visibility == before.visibility
+        && after.owner == before.owner
+        && after.source == before.source
+        && after.createdBy == before.createdBy
+        && after.id == before.id;
+    }
+
+    // Legacy team document (the state blob). Only the signed-in human
+    // account (Yossi) may read and write. Subcollections are not covered
+    // by this match. Bot traffic must not use this path.
+    match /teams/{teamId} {
+      allow read, write: if isTeamMember();
+
+      match /tasks/{taskId} {
+        allow read: if isTeamMember() && canReadItem(resource.data);
+
+        allow create: if isTeamMember()
+          && validTask(request.resource.data)
+          && canReadItem(request.resource.data)
+          && clientMayWriteSource(request.resource.data)
+          && request.resource.data.awaitingReview == false
+          && (!isPrivate(request.resource.data) || isOwner(request.resource.data));
+
+        allow update: if isTeamMember()
+          && canEditTask(resource.data)
+          && validTask(request.resource.data)
+          && visibilityUnchanged();
+
+        allow delete: if isTaskAdmin() && canReadItem(resource.data);
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
