@@ -34,8 +34,15 @@
     return s === "" || (typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s));
   }
 
+  var DURATION_MAX = 14400;
+  var DURATION_UNITS = { min: 1, hour: 1, day: 1 };
+
   function isValidDuration(min, max) {
-    return Number.isInteger(min) && Number.isInteger(max) && min >= 1 && max <= 720 && min <= max;
+    return Number.isInteger(min) && Number.isInteger(max) && min >= 1 && max <= DURATION_MAX && min <= max;
+  }
+
+  function isValidDurationUnit(unit) {
+    return unit == null || unit === "" || DURATION_UNITS[unit] === 1;
   }
 
   function durationOf(payload) {
@@ -76,6 +83,9 @@
     }
     var payload = body.payload || {};
     if (typeof payload !== "object") return { error: httpError(400, "invalid", "payload") };
+    if (!isValidDurationUnit(payload.durationUnit)) {
+      return { error: httpError(400, "invalid", "durationUnit") };
+    }
     for (var k in payload) {
       if (PROTECTED[k] && payload[k] !== undefined) {
         return { error: httpError(400, "invalid", "protected field") };
@@ -191,7 +201,7 @@
 
   function buildAddTask(payload, source, actor, id) {
     var dur = durationOf(payload);
-    return {
+    var doc = {
       id: id,
       title: payload.title.trim(),
       status: payload.status && payload.status !== "done" ? payload.status : "todo",
@@ -211,6 +221,8 @@
       time: payload.time || "",
       version: 1,
     };
+    if (payload.durationUnit) doc.durationUnit = payload.durationUnit;
+    return doc;
   }
 
   function applyUpdateFields(existing, payload) {

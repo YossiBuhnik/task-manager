@@ -46,7 +46,7 @@ A token is bound to exactly one `source`. For non-Joe tokens, the request `sourc
 
 ### Payload by `op`
 
-- `addTask`: `{ title, due?, durationMin?, durationMax?, priority?, projectId?, cityId?, areaId?, notes?, assignee?, time?, …contract fields }`. `title` is required. Missing duration defaults to `60`/`60`. `status` defaults to `todo`. `awaitingReview` is forced to `true`. A new `t_…` id is minted unless a contract-valid id is supplied and free.
+- `addTask`: `{ title, due?, durationMin?, durationMax?, durationUnit?, priority?, projectId?, cityId?, areaId?, notes?, assignee?, time?, …contract fields }`. `title` is required. Missing duration defaults to `60`/`60`. Optional `durationUnit` is `min`, `hour`, or `day` (display only). `status` defaults to `todo`. `awaitingReview` is forced to `true`. A new `t_…` id is minted unless a contract-valid id is supplied and free.
 - `updateTask`: `{ id, …partial fields }`. `id` is required. Cannot change `id`, `source`, `createdBy`, `owner`, or `visibility`. Cannot set `status` to `done` (use `markDone`).
 - `markDone`: `{ id }` plus the request `idempotencyKey`. Sets `status` to `done`. Only the `joe` token or a `yossi` token. Joe may mark done another bot's task.
 - `setDue`: `{ id, due }` plus the request `idempotencyKey`. Sets `due` to `YYYY-MM-DD` or `""`.
@@ -65,7 +65,7 @@ Reject with `400` before any write if:
 - `title` is missing or empty on `addTask`.
 - `status` / `priority` / `source` are not in the contract enums.
 - `due` is not `""` or `YYYY-MM-DD`.
-- `durationMin` / `durationMax` fail `1 ≤ min ≤ max ≤ 720` (integers).
+- `durationMin` / `durationMax` fail `1 ≤ min ≤ max ≤ 14400` (integers). `durationUnit`, when present, is not `min`, `hour`, or `day`.
 - `id` is missing on `updateTask` / `markDone` / `setDue` / `approveTask`, or does not exist (`404`).
 - Payload contains unexpected top-level keys that would overwrite `visibility`, `owner`, `createdBy`, or `source`.
 

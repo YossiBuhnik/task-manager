@@ -53,6 +53,15 @@ eq("source mismatch is 403", H(req({ token: "tok-ido", source: "michal-mail" }))
 eq("addTask without title", H(req({ payload: {} })).body.error, "title");
 eq("bad due", H(req({ payload: { title: "x", due: "tomorrow" } })).body.code, "invalid");
 eq("bad duration", H(req({ payload: { title: "x", durationMin: 10, durationMax: 5 } })).body.code, "invalid");
+eq("duration over 14400", H(req({ payload: { title: "x", durationMin: 1, durationMax: 14401 } })).body.error, "duration");
+eq("bad durationUnit", H(req({ payload: { title: "x", durationUnit: "week" } })).body.error, "durationUnit");
+const dur = handler({ mintId: function () { return "t_dur0000001"; } });
+is("duration 14400 with unit ok", dur.handle(req({
+  idempotencyKey: "m:long",
+  payload: { title: "long", durationMin: 480, durationMax: 14400, durationUnit: "day" },
+})).body.ok);
+eq("stored duration max", dur.deps.tasks["t_dur0000001"].doc.durationMax, 14400);
+eq("stored durationUnit", dur.deps.tasks["t_dur0000001"].doc.durationUnit, "day");
 eq("protected field", H(req({ payload: { title: "x", source: "joe" } })).body.error, "protected field");
 eq("update without id", H(req({ op: "updateTask", payload: { title: "x" } })).http, 400);
 eq("update status done rejected", H(req({
