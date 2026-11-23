@@ -1,0 +1,257 @@
+{
+  "areas": [
+    {
+      "id": "area_office",
+      "name": "Area A",
+      "visibility": "shared",
+      "owner": null
+    },
+    {
+      "id": "area_pm",
+      "name": "Area B",
+      "visibility": "shared",
+      "owner": null
+    }
+  ],
+  "cities": [
+    {
+      "id": "c_one",
+      "name": "Client One",
+      "areaId": "area_office",
+      "visibility": "shared",
+      "owner": null,
+      "projects": [
+        {
+          "id": "p_one",
+          "name": "Project One",
+          "visibility": "shared",
+          "owner": null,
+          "tasks": [
+            {
+              "id": "t_00",
+              "title": "T00",
+              "status": "done",
+              "priority": "high",
+              "due": "2026-12-01",
+              "notes": "",
+              "duration": 60
+            },
+            {
+              "id": "t_01",
+              "title": "T01",
+              "status": "done",
+              "priority": "high",
+              "due": "",
+              "notes": "",
+              "duration": 60
+            },
+            {
+              "id": "t_02",
+              "title": "T02",
+              "status": "done",
+              "priority": "high",
+              "due": "2026-12-01",
+              "notes": "",
+              "duration": 60
+            },
+            {
+              "id": "t_03",
+              "title": "T03",
+              "status": "done",
+              "priority": "high",
+              "due": "",
+              "notes": "",
+              "duration": 60
+            },
+            {
+              "id": "t_04",
+              "title": "T04",
+              "status": "done",
+              "priority": "high",
+              "due": "2026-12-01",
+              "notes": "",
+              "createdAt": "2026-01-15",
+              "duration": 30
+            },
+            {
+              "id": "t_05",
+              "title": "T05",
+              "status": "done",
+              "priority": "mid",
+              "due": "",
+              "notes": "",
+              "createdAt": "2026-01-15",
+              "duration": 45
+            },
+            {
+              "id": "t_06",
+              "title": "T06",
+              "status": "done",
+              "priority": "mid",
+              "due": "2026-12-01",
+              "notes": "",
+              "createdAt": "2026-01-15",
+              "duration": 90
+            },
+            {
+              "id": "t_07",
+              "title": "T07",
+              "status": "done",
+              "priority": "mid",
+              "due": "",
+              "notes": "",
+              "createdAt": "2026-01-15",
+              "durationMin": 10,
+              "durationMax": 20
+            }
+          ]
+        },
+        {
+          "id": "p_two",
+          "name": "Project Two",
+          "visibility": "shared",
+          "owner": null,
+          "tasks": [
+            {
+              "id": "t_08",
+              "title": "T08",
+              "status": "done",
+              "priority": "mid",
+              "due": "2026-12-01",
+              "notes": "",
+              "createdAt": "2026-01-15",
+              "duration": 60
+            },
+            {
+              "id": "t_09",
+              "title": "T09",
+              "status": "done",
+              "priority": "mid",
+              "due": "",
+              "notes": "",
+              "createdAt": "2026-01-15",
+              "duration": 60
+            },
+            {
+              "id": "t_10",
+              "title": "T10",
+              "status": "todo",
+              "priority": "mid",
+              "due": "2026-12-01",
+              "notes": "",
+              "createdAt": "2026-01-15",
+              "duration": 60
+            },
+            {
+              "id": "t_11",
+              "title": "T11",
+              "status": "todo",
+              "priority": "mid",
+              "due": "",
+              "notes": "",
+              "createdAt": "2026-01-15",
+              "duration": 60
+            },
+            {
+              "id": "t_12",
+              "title": "T12",
+              "status": "todo",
+              "priority": "mid",
+              "due": "2026-12-01",
+              "notes": "",
+              "createdAt": "2026-01-15",
+              "duration": 60
+            },
+            {
+              "id": "t_13",
+              "title": "T13",
+              "status": "todo",
+              "priority": "mid",
+              "due": "",
+              "notes": "",
+              "createdAt": "2026-01-15",
+              "duration": 60
+            },
+            {
+              "id": "t_14",
+              "title": "T14",
+              "status": "todo",
+              "priority": "mid",
+              "due": "2026-12-01",
+              "notes": "",
+              "createdAt": "2026-01-15",
+              "duration": 60
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "c_two",
+      "name": "Client Two",
+      "areaId": "area_pm",
+      "visibility": "shared",
+      "owner": null,
+      "projects": [
+        {
+          "id": "p_three",
+          "name": "Project Three",
+          "visibility": "shared",
+          "owner": null,
+          "tasks": [
+            {
+              "id": "t_15",
+              "title": "T15",
+              "status": "todo",
+              "priority": "mid",
+              "due": "",
+              "notes": "",
+              "createdAt": "2026-01-15",
+              "duration": 60
+            },
+            {
+              "id": "t_16",
+              "title": "T16",
+              "status": "todo",
+              "priority": "mid",
+              "due": "2026-12-01",
+              "notes": "",
+              "createdAt": "2026-01-15",
+              "duration": 60
+            },
+            {
+              "id": "t_17",
+              "title": "T17",
+              "status": "todo",
+              "priority": "mid",
+              "due": "",
+              "notes": "",
+              "createdAt": "2026-01-15",
+              "duration": 60
+            },
+            {
+              "id": "t_18",
+              "title": "T18",
+              "status": "doing",
+              "priority": "low",
+              "due": "2026-12-01",
+              "notes": "",
+              "createdAt": "2026-01-15",
+              "duration": 60
+            },
+            {
+              "id": "t_19",
+              "title": "T19",
+              "status": "doing",
+              "priority": "low",
+              "due": "",
+              "notes": "",
+              "createdAt": "2026-01-15",
+              "duration": 60
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
