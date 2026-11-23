@@ -41,10 +41,11 @@ Areas, clients, and projects stay on the team document. The new model does not s
 | `noga-tour` | נגה · סיור |
 | `joe` | ג'ו · סגירת יום |
 | `ido` | עידו · פיתוח |
+| `shaked` | שקד · ראש מטה |
 | `yossi` | יוסי · האפליקציה |
 | `""` | ידני / לא ידוע |
 
-Bot sources are `michal-mail`, `ron-site`, `noga-tour`, `joe`, `ido`. Client (signed-in user) creates may only use `""` or `yossi`. Bot sources are written only through the Apps Script endpoint (PR2).
+Bot sources are `michal-mail`, `ron-site`, `noga-tour`, `joe`, `ido`, `shaked`. `shaked` is a bot source, not an approver: its tasks default `awaitingReview: true`. Client (signed-in user) creates may only use `""` or `yossi`. Bot sources are written only through the Apps Script endpoint (PR2).
 
 ## 2. Urgency (client-side only — never stored in Firestore)
 
@@ -59,7 +60,7 @@ New:
   - `bucket`: `overdue` | `today` | `soon` (due in 1–3 days) | `later` (4+ days) | `none` (no due date / invalid).
   - `score`: same formula as `todoScore`, pinned to `today` when that argument is passed.
   - `daysUntil`: day difference used for the bucket (`null` when `bucket` is `none`).
-- `TM.formatDuration(min, max)` or `TM.formatDuration(task)` — `"10–30"`; a single number when `min === max`. Accepts legacy `task.duration` when the range fields are absent. Empty string when the range is invalid.
+- `TM.formatDuration(min, max)` or `TM.formatDuration(task)` — Hebrew with a unit. If `max < 60`, minutes (`"5–10 דק׳"`, `"30 דק׳"`). If both ends are multiples of 30, hours with at most one decimal (`"4–6 שע׳"`, `"1.5–2 שע׳"`, `"1 שע׳"`). Otherwise minutes (`"45–75 דק׳"`). Equal min/max shows one number. Accepts legacy `task.duration` when the range fields are absent. Empty string when the range is invalid.
 - `TM.isValidDuration(min, max)` — integers, `1 ≤ min ≤ max ≤ 720`.
 
 Store selectors (logic lives in `data.js` as pure helpers; `store.jsx` wraps them in PR1, not in PR0):
