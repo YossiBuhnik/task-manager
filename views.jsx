@@ -6,7 +6,7 @@ const { useState: vUseState, useMemo: vUseMemo, useEffect: vUseEffect } = React;
 // ───────────────────────────────────────────────────────────
 // SHARED: Top bar
 // ───────────────────────────────────────────────────────────
-function TopBar({ search, onSearchChange }) {
+function TopBar({ search, onSearchChange, theme, onToggleTheme }) {
   return (
     <header className="topbar">
       <div className="brand">
@@ -20,6 +20,12 @@ function TopBar({ search, onSearchChange }) {
         value={search}
         onChange={(e) => onSearchChange(e.target.value)}
       />
+      {onToggleTheme && (
+        <button type="button" className="theme-toggle" onClick={onToggleTheme}
+          aria-label={theme === "dark" ? "מצב יום" : "מצב לילה"} title={theme === "dark" ? "מצב יום" : "מצב לילה"}>
+          {theme === "dark" ? window.Icon.sun : window.Icon.moon}
+        </button>
+      )}
     </header>
   );
 }

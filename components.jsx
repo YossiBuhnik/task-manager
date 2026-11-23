@@ -24,6 +24,8 @@ const Icon = {
   list:    <svg className="ico" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>,
   flow:    <svg className="ico" viewBox="0 0 24 24"><rect x="15" y="3" width="6" height="6" rx="1.5"/><rect x="3" y="15" width="6" height="6" rx="1.5"/><rect x="3" y="3" width="6" height="6" rx="1.5"/><path d="M15 6H9M18 9v3a3 3 0 01-3 3H9"/></svg>,
   x:       <svg className="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>,
+  moon:    <svg className="ico" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z"/></svg>,
+  sun:     <svg className="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>,
   users:   <svg className="ico" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M14.5 14.5c1-.3 1.8-.5 2.5-.5 2.8 0 5 2.2 5 5"/></svg>,
 };
 

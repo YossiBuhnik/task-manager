@@ -1884,7 +1884,7 @@ html, body { background: var(--bg); }
 .chip .ico { width: 12px; height: 12px; }
 .chip-area { background: var(--t-bg); color: var(--t-ink); }
 .chip-area::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--t); }
-.chip-src { background: #f2f4f7; color: #344054; border-color: var(--line); }
+.chip-src { background: var(--src-bg); color: var(--src-ink); border-color: var(--line); }
 .chip-src::before { content: ""; width: 6px; height: 6px; border-radius: 2px; background: #98a2b3; }
 .src-michal-mail::before { background: #2e90fa; }
 .src-ron-site::before    { background: #12b76a; }
@@ -1895,7 +1895,7 @@ html, body { background: var(--bg); }
 .chip-dup { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-line); }
 .chip-prio.prio-high { background: var(--danger-bg); color: var(--danger); }
 .chip-prio.prio-mid  { background: var(--warn-bg); color: var(--warn); }
-.chip-prio.prio-low  { background: #f2f4f7; color: #475467; }
+.chip-prio.prio-low  { background: var(--prio-low-bg); color: var(--prio-low-ink); }
 .chip-status.st-todo  { background: var(--status-todo-bg);  color: var(--status-todo-ink); }
 .chip-status.st-doing { background: var(--status-doing-bg); color: var(--status-doing-ink); }
 .chip-status.st-done  { background: var(--status-done-bg);  color: var(--status-done-ink); }
@@ -1920,11 +1920,11 @@ html, body { background: var(--bg); }
 .stat-label { font-size: 13px; color: var(--ink-3); font-weight: 600; }
 .stat-value { font-size: 30px; font-weight: 800; line-height: 1.15; color: var(--ink); }
 .stat-sub { font-size: 12px; color: var(--ink-3); }
-.stat.tone-review  { --st: #7a5af8; }
+.stat.tone-review  { --st: var(--st-review); }
 .stat.tone-urgent  { --st: var(--danger); }
 .stat.tone-urgent .stat-value { color: var(--danger); }
-.stat.tone-doing   { --st: #f79009; }
-.stat.tone-waiting { --st: #2e90fa; }
+.stat.tone-doing   { --st: var(--st-doing); }
+.stat.tone-waiting { --st: var(--st-waiting); }
 
 /* ─── layout ─── */
 .tb { margin-bottom: 28px; }
@@ -1970,7 +1970,7 @@ html, body { background: var(--bg); }
 .who { color: var(--ink-2); font-weight: 500; }
 
 /* ─── inbox + duplicates ─── */
-.inbox { border-color: #d9d6fe; background: linear-gradient(180deg, #faf9ff, var(--surface) 60px); }
+.inbox { border-color: var(--inbox-line); background: var(--inbox-bg); }
 .inbox-list { display: flex; flex-direction: column; gap: 10px; }
 .inbox-item { display: flex; flex-direction: column; gap: 8px; }
 .inbox-actions, .dup-actions { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -2024,3 +2024,130 @@ html, body { background: var(--bg); }
   .board-cols { grid-auto-flow: row; grid-auto-columns: auto; overflow: visible; }
   .panel { padding: 12px; }
 }
+
+/* ============================================================
+   Theme — light (PR4 values) / dark (night) mode
+   Toggle: html[data-theme="dark"|"light"], set by app.jsx
+   (stored in localStorage "tm-theme"; default dark unless the
+   device prefers light). Colors only — no layout changes.
+   ============================================================ */
+:root {
+  --font-sans: "Heebo", "Assistant", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --soft: #f2f4f7;
+  --input: #ffffff;
+  --chip: #f2f4f7;
+  --muted: var(--ink-3);
+  --line-strong: #98a2b3;
+  --on-accent: #ffffff;
+  --src-bg: #f2f4f7;
+  --src-ink: #344054;
+  --prio-low-bg: #f2f4f7;
+  --prio-low-ink: #475467;
+  --inbox-line: #d9d6fe;
+  --inbox-bg: linear-gradient(180deg, #faf9ff, var(--surface) 60px);
+  --rank-bg: var(--ink);
+  --rank-ink: #ffffff;
+  --ph-inbox: #6941c6;
+  --st-review: #7a5af8;
+  --st-doing: #f79009;
+  --st-waiting: #2e90fa;
+  --page-bg: var(--bg);
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b1220;
+  --bg-2: #0e1626;
+  --surface: #121a2b;
+  --soft: #1a2436;
+  --input: #0e1626;
+  --chip: #1a2436;
+  --ink: #e8eef7;
+  --ink-2: #c9d6e8;
+  --ink-3: #9aabc0;
+  --muted: #9aabc0;
+  --line: #243044;
+  --line-2: #31425c;
+  --line-strong: #3a4d68;
+  --accent: #818cf8;
+  --accent-2: rgba(129, 140, 248, .16);
+  --accent-ink: #0b1220;
+  --accent-end: #9ec4ef;
+  --on-accent: #0b1220;
+  --danger: #fda29b;
+  --danger-bg: #3b1518;
+  --danger-line: #7a271a;
+  --warn: #fdb022;
+  --warn-bg: #3a3218;
+  --success: #6ce9a6;
+  --prio-high: #fda29b;
+  --prio-mid: #fdb022;
+  --prio-low: #9aabc0;
+
+  --status-todo-bg: #1a2436;  --status-todo-ink: #c5d0e0;
+  --status-doing-bg: #3a3218; --status-doing-ink: #fde68a;
+  --status-done-bg: #16331f;  --status-done-ink: #6ce9a6;
+
+  --tone-office: #a5b4fc; --tone-office-bg: #1e1b4b; --tone-office-ink: #c7d2fe;
+  --tone-pm:     #2dd4bf; --tone-pm-bg:     #134e4a; --tone-pm-ink:     #99f6e4;
+  --tone-qa:     #fbbf24; --tone-qa-bg:     #3b2a0e; --tone-qa-ink:     #fde68a;
+
+  --src-bg: #1a2436;
+  --src-ink: #d5deea;
+  --prio-low-bg: #1a2436;
+  --prio-low-ink: #c5d0e0;
+  --inbox-line: #3f3a6e;
+  --inbox-bg: linear-gradient(180deg, rgba(129, 140, 248, .12), var(--surface) 72px);
+  --rank-bg: #9ec4ef;
+  --rank-ink: #0b1220;
+  --ph-inbox: #c4b5fd;
+  --st-review: #a78bfa;
+  --st-doing: #f79009;
+  --st-waiting: #60a5fa;
+
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 8px 24px rgba(0, 0, 0, .28);
+  --card-shadow-hover: 0 1px 2px rgba(0, 0, 0, .4), 0 12px 32px rgba(0, 0, 0, .36);
+  --shadow-sm: var(--card-shadow);
+  --shadow-md: var(--card-shadow-hover);
+  --page-bg:
+    radial-gradient(900px 280px at 100% -40px, rgba(158, 196, 239, .08), transparent 60%),
+    radial-gradient(700px 400px at 0% 0%, rgba(129, 140, 248, .07), transparent 55%),
+    var(--bg);
+}
+html, body { background: var(--page-bg); background-attachment: fixed; }
+
+/* form controls follow the theme */
+.field input, .field textarea, .field select, .search-input,
+.dur-range select { background: var(--input); color: var(--ink); }
+
+/* text on solid accent: white in light, near-black on the light indigo in dark */
+.btn-primary, .btn-accent, .seg button.is-active { color: var(--on-accent); }
+html[data-theme="dark"] .chip-filter,
+html[data-theme="dark"] .map-tag.is-ready { color: var(--accent); }
+
+/* legacy hard-coded light fills used by the area / client / project views */
+html[data-theme="dark"] .prio-high { background: var(--danger-bg); color: var(--danger); }
+html[data-theme="dark"] .prio-mid  { background: var(--warn-bg);   color: var(--warn); }
+html[data-theme="dark"] .prio-low  { background: var(--prio-low-bg); color: var(--prio-low-ink); }
+html[data-theme="dark"] .btn-danger:hover { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-line); }
+html[data-theme="dark"] .task-check.is-doing { background: var(--warn-bg); }
+html[data-theme="dark"] .map-node.is-doing { background: linear-gradient(160deg, var(--warn-bg), var(--surface) 60%); }
+html[data-theme="dark"] .map-node.is-blocked { background: color-mix(in srgb, var(--surface) 70%, var(--bg)); }
+html[data-theme="dark"] .hero-chip.is-warn { background: var(--danger-bg); color: var(--danger); }
+html[data-theme="dark"] .map-due.is-soon { color: var(--warn); }
+html[data-theme="dark"] .progress-row.is-low .progress-label.is-outside { color: var(--warn); }
+
+/* theme toggle in the top bar */
+.theme-toggle {
+  display: inline-grid; place-items: center; width: 36px; height: 36px; flex: 0 0 36px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--surface);
+  color: var(--ink-2); cursor: pointer; box-shadow: var(--shadow-sm);
+}
+.theme-toggle:hover { color: var(--ink); border-color: var(--line-2); }
+.theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.theme-toggle .ico { width: 18px; height: 18px; }
+html[data-theme="dark"] .modal-overlay { background: rgba(3, 6, 12, .68); }
+html[data-theme="dark"] .modal { border: 1px solid var(--line-2); }
+/* hash-palette area tints (inline --area-soft/--area-ink are light-only) */
+html[data-theme="dark"] .card.card-tinted { background: linear-gradient(to left, var(--surface) 70%, color-mix(in srgb, var(--area-color, var(--accent)) 16%, var(--surface))); }
+html[data-theme="dark"] .todo-proj, html[data-theme="dark"] .area-pill { background: color-mix(in srgb, var(--area-color, var(--accent)) 20%, var(--surface)); color: var(--ink); }
