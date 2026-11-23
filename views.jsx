@@ -179,7 +179,7 @@ function DueText({ task, urg }) {
   return <span className={"due " + cls}>{window.Icon.cal}{txt}{task.time ? " · " + task.time : ""}</span>;
 }
 
-function TaskCard({ row, onOpen, compact }) {
+function TaskCard({ row, onOpen, compact, showDuration }) {
   const { task, area, city, project, urg } = row;
   const dup = !!(task.dupGroup || task.dupLabel);
   const cls = ["tcard",
@@ -209,6 +209,7 @@ function TaskCard({ row, onOpen, compact }) {
         {meta.map((m, i) => <span key={i}>{m}</span>)}
         <DueText task={task} urg={urg} />
         {task.assignee && <span className="who">{task.assignee}</span>}
+        {showDuration && window.formatDurationHe(task) && <span className="dur">{window.formatDurationHe(task)}</span>}
       </div>
     </div>
   );
@@ -342,7 +343,7 @@ function Inbox({ rows, allRows, actions, onOpen }) {
 const byUrgency = (a, b) => b.urg.score - a.urg.score
   || (a.task.due ? 0 : 1) - (b.task.due ? 0 : 1);
 
-function Board({ rows, tree, groupBy, onGroupBy, onOpen, filter, onClearFilter, extraControls, children }) {
+function Board({ rows, tree, groupBy, onGroupBy, onOpen, filter, onClearFilter, extraControls, showGroup = true, children }) {
   const columns = vUseMemo(() => {
     if (groupBy === "status") {
       return window.TM.STATUSES.map(s => {
@@ -365,8 +366,10 @@ function Board({ rows, tree, groupBy, onGroupBy, onOpen, filter, onClearFilter, 
         )}
         <span className="spacer" />
         {extraControls}
-        <Segmented label="קיבוץ" value={groupBy} onChange={onGroupBy}
-          options={[{ key: "area", label: "לפי תחום" }, { key: "status", label: "לפי סטטוס" }]} />
+        {showGroup && (
+          <Segmented label="קיבוץ" value={groupBy} onChange={onGroupBy}
+            options={[{ key: "area", label: "לפי תחום" }, { key: "status", label: "לפי סטטוס" }]} />
+        )}
       </div>
       {children || (
         <div className="board-cols">
@@ -379,7 +382,7 @@ function Board({ rows, tree, groupBy, onGroupBy, onOpen, filter, onClearFilter, 
               </div>
               <div className="board-col-body">
                 {col.items.length === 0 && <div className="panel-empty">אין משימות</div>}
-                {col.items.map(r => <TaskCard key={r.task.id} row={r} onOpen={onOpen} />)}
+                {col.items.map(r => <TaskCard key={r.task.id} row={r} onOpen={onOpen} showDuration />)}
                 {col.more > 0 && <div className="col-more">ועוד {col.more} שהושלמו</div>}
               </div>
             </div>
@@ -417,6 +420,92 @@ function RowList({ title, rows, empty, onOpen, render }) {
   );
 }
 
+// ── Desktop: consolidated table with a duration-range column ──
+function TaskTable({ rows, onOpen }) {
+  const sorted = rows.filter(isOpenRow).slice().sort(byUrgency);
+  if (!sorted.length) return <div className="panel-empty">אין משימות</div>;
+  return (
+    <div className="ttable-wrap">
+      <table className="ttable">
+        <thead>
+          <tr>
+            <th>משימה</th><th>מקור</th><th>תחום</th><th>פרויקט · מזמין</th>
+            <th>סטטוס</th><th>עדיפות</th><th>יעד</th><th>משך</th><th>אחראי</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map(r => {
+            const { task, urg } = r;
+            const cls = [urg.bucket === "overdue" ? "is-overdue" : "", (task.dupGroup || task.dupLabel) ? "is-dup" : ""].join(" ");
+            return (
+              <tr key={task.id} className={cls} tabIndex={0} onClick={() => onOpen(r)}
+                onKeyDown={(e) => { if (e.key === "Enter") onOpen(r); }}>
+                <td className="tt-title">{task.title} <window.DupChip task={task} /></td>
+                <td>{task.source ? <window.SourceChip source={task.source} /> : <span className="muted">—</span>}</td>
+                <td><window.AreaChip area={r.area} /></td>
+                <td className="tt-sub">{[r.project.name, r.city.name].filter(Boolean).join(" · ")}</td>
+                <td><window.StatusChip status={task.status} /></td>
+                <td><window.PriorityChip priority={task.priority} /></td>
+                <td>{task.due ? <DueText task={task} urg={urg} /> : <span className="muted">ללא</span>}</td>
+                <td className="tt-dur">{window.formatDurationHe(task) || "—"}</td>
+                <td className="who">{task.assignee || ""}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── Phone home: only the 2–3 most urgent dated tasks, then a path to the board ──
+function useNarrow(q = "(max-width: 640px)") {
+  const [narrow, setNarrow] = vUseState(() => !!(window.matchMedia && window.matchMedia(q).matches));
+  vUseEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia(q);
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [q]);
+  return narrow;
+}
+
+function PhoneHome({ allRows, inboxCount, onOpen, onShowBoard, actions }) {
+  // Contract helper on the visible set (private areas stay hidden):
+  // approved, open, dated tasks only, by urgency score.
+  const byId = new Map(allRows.map(r => [r.task.id, r]));
+  const top = window.TM.listTopUrgent(allRows.map(r => r.task), { limit: 3 }).map(t => byId.get(t.id));
+  const undated = allRows.filter(r => isOpenRow(r) && isBoardRow(r) && !r.task.due).length;
+  const markDone = (r) => actions.updateTask(r.city.id, r.project.id, r.task.id, { status: "done" });
+  return (
+    <div className="phone-home">
+      <h1 className="tb-title">מה הכי דחוף עכשיו</h1>
+      <p className="ph-sub">{new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" })}</p>
+      {top.length === 0 ? (
+        <div className="panel-empty">אין משימות פתוחות עם תאריך יעד.</div>
+      ) : (
+        <ol className="ph-list">
+          {top.map((r, i) => (
+            <li key={r.task.id} className="ph-item">
+              <span className="ph-rank">{i + 1}</span>
+              <div className="ph-card">
+                <TaskCard row={r} onOpen={onOpen} showDuration />
+                <button className="btn btn-sm ph-done" onClick={() => markDone(r)}>{window.Icon.check}<span>בוצע</span></button>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+      <div className="ph-more">
+        {undated > 0 && <span>עוד {undated} משימות פתוחות ללא תאריך יעד</span>}
+        {inboxCount > 0 && <span className="ph-inbox">{inboxCount} ממתינות לסקירה</span>}
+      </div>
+      <button className="btn btn-primary ph-board" onClick={onShowBoard}>ללוח המלא</button>
+    </div>
+  );
+}
+
 const TILE_FILTERS = {
   urgent:  { label: "דחוף פתוח",     test: (r) => isOpenRow(r) && !!URGENT_BUCKETS[r.urg.bucket] },
   doing:   { label: "בתהליך",        test: (r) => r.task.status === "doing" },
@@ -429,6 +518,17 @@ function TaskBoard({ data, actions, search, userEmail, userName }) {
   });
   const [tile, setTile] = vUseState(null);
   const [editing, setEditing] = vUseState(null);
+  const [view, setView] = vUseState(() => {
+    try { return localStorage.getItem("tm_board_view") || "cards"; } catch (e) { return "cards"; }
+  });
+  const setBoardView = (v) => { setView(v); try { localStorage.setItem("tm_board_view", v); } catch (e) {} };
+  const narrow = useNarrow();
+  // Phone: the app opens on the top-urgent list; the full board is one tap away
+  // (remembered for this browser session only).
+  const [fullOnPhone, setFullOnPhone] = vUseState(() => {
+    try { return sessionStorage.getItem("tm_phone_full") === "1"; } catch (e) { return false; }
+  });
+  const showFull = (v) => { setFullOnPhone(v); try { sessionStorage.setItem("tm_phone_full", v ? "1" : ""); } catch (e) {} };
   const me = (userName || "").split(" ")[0];
   const setGroup = (g) => { setGroupBy(g); try { localStorage.setItem("tm_board_group", g); } catch (e) {} };
 
@@ -458,8 +558,37 @@ function TaskBoard({ data, actions, search, userEmail, userName }) {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const modal = editing && (
+    <window.TaskModal
+      task={editing.task}
+      context={{ area: editing.area, city: editing.city, project: editing.project }}
+      projectTasks={editing.project.tasks}
+      onClose={() => setEditing(null)}
+      onSave={(fields) => {
+        actions.updateTask(editing.city.id, editing.project.id, editing.task.id, fields);
+        setEditing(null);
+      }}
+      onApprove={() => actions.approveTask(editing.task.id)}
+      onDelete={() => actions.deleteTask(editing.city.id, editing.project.id, editing.task.id)}
+    />
+  );
+
+  if (narrow && !fullOnPhone && !search) {
+    return (
+      <div className="tb">
+        <PhoneHome allRows={allRows} inboxCount={inbox.length} onOpen={openRow}
+          onShowBoard={() => showFull(true)} actions={actions} />
+        {modal}
+      </div>
+    );
+  }
+  const tableOn = view === "table" && !narrow;
+
   return (
     <div className="tb">
+      {narrow && (
+        <button className="btn btn-sm ph-back" onClick={() => showFull(false)}>‹ הכי דחוף עכשיו</button>
+      )}
       <div className="tb-head">
         <h1 className="tb-title">{new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" })}</h1>
       </div>
@@ -472,11 +601,18 @@ function TaskBoard({ data, actions, search, userEmail, userName }) {
         <StatTile tone="waiting" label="ממתין לאחרים" value={waiting.length} active={tile === "waiting"} onClick={() => toggle("waiting")} />
       </div>
 
-      <div className="tb-grid">
+      <div className={"tb-grid" + (tableOn ? " is-wide" : "")}>
         <div className="tb-main">
           <Inbox rows={inbox} allRows={rows} actions={actions} onOpen={openRow} />
           <Board rows={boardShown} tree={tree} groupBy={groupBy} onGroupBy={setGroup} onOpen={openRow}
-            filter={tile ? TILE_FILTERS[tile] : null} onClearFilter={() => setTile(null)} />
+            filter={tile ? TILE_FILTERS[tile] : null} onClearFilter={() => setTile(null)}
+            showGroup={!tableOn}
+            extraControls={!narrow && (
+              <Segmented label="תצוגה" value={view} onChange={setBoardView}
+                options={[{ key: "cards", label: "כרטיסים" }, { key: "table", label: "טבלה" }]} />
+            )}>
+            {tableOn && <TaskTable rows={boardShown} onOpen={openRow} />}
+          </Board>
         </div>
         <aside className="tb-aside">
           <RowList title="תזכורות קרובות" rows={reminders.slice(0, 8)} empty="אין תזכורות בשבוע הקרוב"
@@ -486,20 +622,7 @@ function TaskBoard({ data, actions, search, userEmail, userName }) {
         </aside>
       </div>
 
-      {editing && (
-        <window.TaskModal
-          task={editing.task}
-          context={{ area: editing.area, city: editing.city, project: editing.project }}
-          projectTasks={editing.project.tasks}
-          onClose={() => setEditing(null)}
-          onSave={(fields) => {
-            actions.updateTask(editing.city.id, editing.project.id, editing.task.id, fields);
-            setEditing(null);
-          }}
-          onApprove={() => actions.approveTask(editing.task.id)}
-          onDelete={() => actions.deleteTask(editing.city.id, editing.project.id, editing.task.id)}
-        />
-      )}
+      {modal}
     </div>
   );
 }
