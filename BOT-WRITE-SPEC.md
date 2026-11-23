@@ -35,7 +35,7 @@ A token is bound to exactly one `source`. For non-Joe tokens, the request `sourc
 ```json
 {
   "token": "<per-bot secret>",
-  "op": "addTask" | "updateTask" | "markDone" | "setDue" | "approveTask",
+  "op": "addTask" | "updateTask" | "markDone" | "setDue" | "approveTask" | "proposeDone" | "acceptProposal" | "rejectProposal" | "listTasks",
   "idempotencyKey": "<required string>",
   "source": "michal-mail" | "ron-site" | "noga-tour" | "joe" | "ido" | "shaked",
   "payload": {}
@@ -53,6 +53,42 @@ A token is bound to exactly one `source`. For non-Joe tokens, the request `sourc
 - `approveTask`: `{ id }`. Sets `awaitingReview` to `false`. **Joe token only** (Yossi approves in the app under rules). Other bot tokens cannot approve.
 
 Joe's end-of-day close uses these field updates, one call per task, addressed by `id` and `idempotencyKey`: `markDone` (`status: done`) and `setDue` (`due`). A replay of either op with the same `idempotencyKey` and the same payload returns the stored `200` and does not write again.
+
+A bot that does not own the task (`createdBy` / `source` is not the caller's source) or that calls `updateTask` / `setDue` after `awaitingReview` is false does **not** change the task. The bridge stores `proposals[]` entry `{ kind: "edit", fields, by, at, idempotencyKey, state: "pending" }` and responds `code: "proposed"`. The bot's own task while `awaitingReview` is still true is applied as before. `joe` / `yossi` apply directly.
+
+### Proposals and `listTasks` (for `tasks_app.py`)
+
+`proposeDone` never sets `status`. Any bot token may call it. Only `joe` / `yossi` may `acceptProposal` (kind `done` becomes `markDone`) or `rejectProposal`.
+
+Request:
+
+```json
+{ "token": "<bot>", "op": "proposeDone", "source": "ron-site", "idempotencyKey": "ron-site:t_1:done", "payload": { "taskId": "t_1", "note": "finished on site" } }
+```
+
+Response (`status` unchanged, one pending proposal):
+
+```json
+{ "ok": true, "code": "proposed", "taskId": "t_1", "proposalId": "prop_…" }
+```
+
+Accept (Joe):
+
+```json
+{ "token": "<joe>", "op": "acceptProposal", "source": "joe", "idempotencyKey": "joe:t_1:accept", "payload": { "taskId": "t_1", "proposalId": "prop_…" } }
+```
+
+Response: `{ "ok": true, "code": "ok", "taskId": "t_1" }` and `status` is `done`.
+
+`listTasks` is a read. Any valid token. Same `403 migration_pending` until `MIGRATION_DONE` is `"true"`. `idempotencyKey` is optional. Filters: `since`, `status`, `area`, `limit` (default 50, max 100), `cursor`.
+
+```json
+{ "token": "<bot>", "op": "listTasks", "source": "joe", "payload": { "status": "todo", "area": "area_office", "limit": 50 } }
+```
+
+```json
+{ "ok": true, "code": "ok", "nextCursor": null, "tasks": [{ "id": "t_1", "title": "…", "status": "todo", "due": "", "durationMin": 60, "durationMax": 90, "durationUnit": "hour", "area": "area_office", "project": "p_1", "awaitingReview": true, "proposals": 1 }] }
+```
 
 Single-task writes are the primary path and are accepted **at any time of day**. This is required for Michal's mail-derived updates, which arrive live throughout the day (not only at end of day). Details: §7. A batch is allowed only as a compatibility wrapper (see §9): the handler splits it into per-task operations, each with its own `idempotencyKey`.
 
@@ -77,7 +113,7 @@ Joe has **no Google login**. His identity is the **`joe` bridge token** (used by
 
 | Actor | `addTask` (own source) | `updateTask` of own-source task | `updateTask` / `setDue` of another bot's task | `markDone` | `approveTask` |
 |---|---|---|---|---|---|
-| `michal-mail`, `ron-site`, `noga-tour`, `ido`, `shaked`, `calendar-agent` token | yes | yes, if `awaitingReview` is still true (live corrections) | no (`403`) | no (`403`) | no (`403`) |
+| `michal-mail`, `ron-site`, `noga-tour`, `ido`, `shaked`, `calendar-agent` token | yes | yes, if `awaitingReview` is still true (live corrections) | stored as an edit proposal, not applied | no (`403`); use `proposeDone` | no (`403`) |
 | `joe` token | yes | yes | yes | yes | yes |
 | Signed-in Yossi in the app | n/a (client SDK, not this endpoint) | yes (Firestore rules) | yes (rules) | yes (rules) | yes (rules) |
 

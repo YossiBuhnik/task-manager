@@ -188,10 +188,11 @@ function TaskCard({ row, onOpen, compact, showDuration }) {
   return (
     <div className={cls} role="button" tabIndex={0} onClick={() => onOpen(row)}
       onKeyDown={(e) => { if (e.key === "Enter") onOpen(row); }}>
-      {(task.source || dup) && (
+      {(task.source || dup || window.TM.pendingProposals(task).length > 0) && (
         <div className="tcard-top">
           <window.SourceChip source={task.source} />
           <window.DupChip task={task} />
+          {window.TM.pendingProposals(task).length > 0 && <span className="chip chip-proposal">הצעה</span>}
         </div>
       )}
       <div className="tcard-title">{task.title}</div>
@@ -284,6 +285,8 @@ function DupPair({ rows, actions, onOpen }) {
 }
 
 function InboxItem({ row, actions, onOpen }) {
+  const pending = window.TM.pendingProposals(row.task);
+  const first = pending[0];
   const reject = () => {
     if (confirm(`לדחות ולמחוק את «${row.task.title}»?`))
       actions.deleteTask(row.city.id, row.project.id, row.task.id);
@@ -292,11 +295,21 @@ function InboxItem({ row, actions, onOpen }) {
     <div className="inbox-item">
       <TaskCard row={row} onOpen={onOpen} />
       <div className="inbox-actions">
-        <button className="btn btn-sm btn-primary" onClick={() => actions.approveTask(row.task.id)}>
-          {window.Icon.check}<span>אישור ותיוק</span>
-        </button>
+        {row.task.awaitingReview && (
+          <button className="btn btn-sm btn-primary" onClick={() => actions.approveTask(row.task.id)}>
+            {window.Icon.check}<span>אישור ותיוק</span>
+          </button>
+        )}
+        {first && (
+          <button className="btn btn-sm btn-primary" onClick={() => actions.acceptProposal(row.task.id, first.id)}>
+            {window.Icon.check}<span>קבל הצעה</span>
+          </button>
+        )}
+        {first && (
+          <button className="btn btn-sm" onClick={() => actions.rejectProposal(row.task.id, first.id)}>דחה הצעה</button>
+        )}
         <button className="btn btn-sm" onClick={() => onOpen(row)}>{window.Icon.edit}<span>עריכה</span></button>
-        <button className="btn btn-sm btn-ghost" onClick={reject}>דחייה</button>
+        {row.task.awaitingReview && <button className="btn btn-sm btn-ghost" onClick={reject}>דחייה</button>}
       </div>
     </div>
   );
@@ -533,7 +546,7 @@ function TaskBoard({ data, actions, search, userEmail, userName }) {
   const allRows = vUseMemo(() => boardRows(data, userEmail), [data, userEmail]);
   const rows = vUseMemo(() => allRows.filter(r => rowMatches(search, r)), [allRows, search]);
 
-  const inbox = rows.filter(r => r.task.awaitingReview && isOpenRow(r));
+  const inbox = rows.filter(r => isOpenRow(r) && (r.task.awaitingReview || window.TM.pendingProposals(r.task).length > 0));
   const board = rows.filter(isBoardRow);
   const open = board.filter(isOpenRow);
   const urgent = open.filter(TILE_FILTERS.urgent.test);

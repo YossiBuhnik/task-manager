@@ -396,6 +396,20 @@ async function main() {
   is("empty waitingOn does not count", !TM.isWaitingOnOthers({ status: "todo", waitingOn: "" }));
   is("status waiting counts", TM.isWaitingOnOthers({ status: "waiting" }));
 
+  console.log("decideProposal");
+  {
+    const task = { id: "t_p", title: "Keep", status: "todo", proposals: [{ id: "prop_1", kind: "done", state: "pending" }] };
+    const accepted = TM.decideProposal(task, "prop_1", "accept");
+    is("accept ok", accepted.ok);
+    eq("accept sets done", accepted.task.status, "done");
+    eq("accept marks proposal", accepted.task.proposals[0].state, "accepted");
+    const edit = { id: "t_e", title: "Old", status: "todo", due: "", proposals: [{ id: "prop_e", kind: "edit", state: "pending", fields: { due: "2026-12-01" } }] };
+    const rejected = TM.decideProposal(edit, "prop_e", "reject");
+    eq("reject leaves title", rejected.task.title, "Old");
+    eq("reject leaves due", rejected.task.due, "");
+    eq("reject state", rejected.task.proposals[0].state, "rejected");
+  }
+
   console.log("moveTask");
   {
     const team = {

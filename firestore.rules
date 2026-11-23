@@ -127,10 +127,22 @@ service cloud.firestore {
           && request.resource.data.awaitingReview == false
           && (!isPrivate(request.resource.data) || isOwner(request.resource.data));
 
+        // Non-admins cannot change status or other task fields, and cannot
+        // write proposals. Bots have no Google login, so they cannot reach
+        // this match; service-account writes bypass rules and must use the bridge.
         allow update: if isTeamMember()
           && canEditTask(resource.data)
           && validTask(request.resource.data)
-          && visibilityUnchanged();
+          && visibilityUnchanged()
+          && (isTaskAdmin() || (
+            request.resource.data.status == resource.data.status
+            && request.resource.data.due == resource.data.due
+            && request.resource.data.title == resource.data.title
+            && request.resource.data.priority == resource.data.priority
+            && request.resource.data.durationMin == resource.data.durationMin
+            && request.resource.data.durationMax == resource.data.durationMax
+            && request.resource.data.get("proposals", []) == resource.data.get("proposals", [])
+          ));
 
         allow delete: if isTaskAdmin() && canReadItem(resource.data);
       }

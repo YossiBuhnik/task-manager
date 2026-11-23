@@ -4,7 +4,7 @@
 (function (root) {
   "use strict";
 
-  var OPS = ["addTask", "updateTask", "markDone", "setDue", "approveTask"];
+  var OPS = ["addTask", "updateTask", "markDone", "setDue", "approveTask", "proposeDone", "acceptProposal", "rejectProposal", "listTasks"];
   var BOT_SOURCES = ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked"];
   var STATUSES = ["todo", "doing", "done"];
   var PRIORITIES = ["high", "mid", "low"];
@@ -73,7 +73,13 @@
     if (!body || typeof body !== "object") return { error: httpError(400, "invalid", "body") };
     if (OPS.indexOf(body.op) === -1) return { error: httpError(400, "invalid", "op") };
     var key = body.idempotencyKey;
-    if (!key || typeof key !== "string" || !key.trim() || key.length > IDEMPOTENCY_MAX_LEN) {
+    var readOp = body.op === "listTasks";
+    if (readOp) {
+      if (key != null && key !== "" && (typeof key !== "string" || !key.trim() || key.length > IDEMPOTENCY_MAX_LEN)) {
+        return { error: httpError(400, "invalid", "idempotencyKey") };
+      }
+      key = key || "";
+    } else if (!key || typeof key !== "string" || !key.trim() || key.length > IDEMPOTENCY_MAX_LEN) {
       return { error: httpError(400, "invalid", "idempotencyKey") };
     }
     var source = body.source != null && body.source !== "" ? body.source : actor.source;
@@ -109,8 +115,16 @@
         return { error: httpError(400, "invalid", "duration") };
       }
     }
-    if (body.op === "updateTask" || body.op === "markDone" || body.op === "setDue" || body.op === "approveTask") {
-      if (!payload.id || typeof payload.id !== "string") return { error: httpError(400, "invalid", "id") };
+    if (body.op === "updateTask" || body.op === "markDone" || body.op === "setDue" || body.op === "approveTask" || body.op === "proposeDone" || body.op === "acceptProposal" || body.op === "rejectProposal") {
+      var tid = payload.taskId || payload.id;
+      if (!tid || typeof tid !== "string") return { error: httpError(400, "invalid", "id") };
+      payload.id = tid;
+    }
+    if (body.op === "proposeDone" && payload.note != null && typeof payload.note !== "string") {
+      return { error: httpError(400, "invalid", "note") };
+    }
+    if ((body.op === "acceptProposal" || body.op === "rejectProposal") && (!payload.proposalId || typeof payload.proposalId !== "string")) {
+      return { error: httpError(400, "invalid", "proposalId") };
     }
     if (body.op === "updateTask") {
       if (payload.status === "done") return { error: httpError(400, "invalid", "use markDone") };
@@ -136,19 +150,28 @@
     return { ok: true, source: source, payload: payload, op: body.op, idempotencyKey: key };
   }
 
+  function ownsTask(actor, existing) {
+    if (!existing || !actor) return false;
+    if (existing.createdBy && existing.createdBy === actor.source) return true;
+    return existing.source === actor.source;
+  }
+
   function authorize(actor, op, existing) {
-    if (op === "addTask") return { ok: true };
+    if (op === "addTask" || op === "listTasks") return { ok: true };
     if (!existing) return { error: httpError(404, "not_found") };
+    if (op === "acceptProposal" || op === "rejectProposal" || op === "markDone" || op === "approveTask") {
+      if (!isAdminSource(actor.source)) return { error: httpError(403, "forbidden", "admin only") };
+      return { ok: true };
+    }
+    if (op === "proposeDone") return { ok: true };
+    if (op === "updateTask" || op === "setDue") {
+      if (isAdminSource(actor.source)) return { ok: true };
+      if (ownsTask(actor, existing) && existing.awaitingReview) return { ok: true };
+      return { ok: true, propose: true };
+    }
     if (isAdminSource(actor.source)) return { ok: true };
-    if (op === "markDone" || op === "approveTask") {
-      return { error: httpError(403, "forbidden", "admin only") };
-    }
-    if (existing.source !== actor.source) {
-      return { error: httpError(403, "forbidden", "other bot's task") };
-    }
-    if (!existing.awaitingReview) {
-      return { error: httpError(403, "forbidden", "already approved") };
-    }
+    if (!ownsTask(actor, existing)) return { error: httpError(403, "forbidden", "other bot's task") };
+    if (!existing.awaitingReview) return { error: httpError(403, "forbidden", "already approved") };
     return { ok: true };
   }
 
@@ -284,6 +307,94 @@
     return out;
   }
 
+  function pendingCount(doc) {
+    var n = 0;
+    var list = (doc && doc.proposals) || [];
+    for (var i = 0; i < list.length; i++) if (!list[i].state || list[i].state === "pending") n++;
+    return n;
+  }
+
+  function summarizeTask(doc) {
+    return {
+      id: doc.id,
+      title: doc.title || "",
+      status: doc.status || "",
+      due: doc.due || "",
+      durationMin: doc.durationMin,
+      durationMax: doc.durationMax,
+      durationUnit: doc.durationUnit || "",
+      area: doc.areaId || doc.area || "",
+      project: doc.projectId || doc.project || "",
+      awaitingReview: doc.awaitingReview === true,
+      proposals: pendingCount(doc),
+    };
+  }
+
+  function listTaskSummaries(docs, query) {
+    query = query || {};
+    var limit = query.limit == null ? 50 : Math.max(1, Math.min(100, Number(query.limit) || 50));
+    var rows = [];
+    for (var i = 0; i < docs.length; i++) {
+      var d = docs[i];
+      if (!d) continue;
+      if (query.status && d.status !== query.status) continue;
+      var area = d.areaId || d.area || "";
+      if (query.area && area !== query.area) continue;
+      if (query.since) {
+        var stamp = d.updatedAt || d.createdAt || "";
+        if (String(stamp) < String(query.since)) continue;
+      }
+      rows.push(d);
+    }
+    rows.sort(function (a, b) { return String(a.id).localeCompare(String(b.id)); });
+    if (query.cursor) rows = rows.filter(function (d) { return String(d.id) > String(query.cursor); });
+    var page = rows.slice(0, limit);
+    return {
+      tasks: page.map(summarizeTask),
+      nextCursor: rows.length > limit ? page[page.length - 1].id : null,
+    };
+  }
+
+  function proposalIdFor(source, key) {
+    return "prop_" + fnv1aHex(String(source) + ":" + String(key));
+  }
+
+  function editFieldsOf(op, payload) {
+    if (op === "setDue") return { due: payload.due || "" };
+    var out = {};
+    for (var k in payload) {
+      if (!Object.prototype.hasOwnProperty.call(payload, k)) continue;
+      if (k === "id" || k === "taskId") continue;
+      out[k] = payload[k];
+    }
+    return out;
+  }
+
+  function withProposal(existing, proposal) {
+    var list = (existing.proposals || []).slice();
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === proposal.id) return applyUpdateFields(existing, {});
+    }
+    list.push(proposal);
+    var next = applyUpdateFields(existing, {});
+    next.proposals = list;
+    return next;
+  }
+
+  function setProposalState(existing, proposalId, state) {
+    var list = (existing.proposals || []).slice();
+    var found = null;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === proposalId) {
+        found = {};
+        for (var k in list[i]) if (Object.prototype.hasOwnProperty.call(list[i], k)) found[k] = list[i][k];
+        found.state = state;
+        list[i] = found;
+      }
+    }
+    return { list: list, proposal: found };
+  }
+
   // deps:
   //   nowMs, tokenMap, rateBuckets, rateLimit,
   //   migrationDone (boolean),
@@ -317,9 +428,9 @@
       var checked = validateRequest(body, actor);
       if (checked.error) return checked.error;
 
-      var idempId = idempotencyId(checked.source, checked.idempotencyKey);
+      var idempId = checked.idempotencyKey ? idempotencyId(checked.source, checked.idempotencyKey) : "";
       var fp = requestFingerprint(checked.op, checked.source, checked.payload);
-      var prev = deps.getIdempotency && deps.getIdempotency(idempId);
+      var prev = idempId && deps.getIdempotency && deps.getIdempotency(idempId);
       if (prev) {
         if (prev.fingerprint !== fp) return httpError(409, "conflict", "idempotency key reused");
         return { http: 200, body: prev.response };
@@ -327,7 +438,7 @@
 
       var existing = null;
       var existingMeta = null;
-      if (checked.op !== "addTask") {
+      if (checked.op !== "addTask" && checked.op !== "listTasks") {
         existingMeta = deps.getTask ? deps.getTask(checked.payload.id) : null;
         existing = existingMeta && existingMeta.doc;
         if (!existing) return httpError(404, "not_found");
@@ -336,14 +447,67 @@
       var authz = authorize(actor, checked.op, existing);
       if (authz.error) return authz.error;
 
-      var taskId, doc, type, result;
+      var taskId, doc, result, listed, marked, proposal;
       try {
-        if (checked.op === "addTask") {
+        if (checked.op === "listTasks") {
+          var all = deps.listTasks ? deps.listTasks() : [];
+          listed = listTaskSummaries(all, checked.payload);
+          result = { http: 200, body: { ok: true, code: "ok", tasks: listed.tasks, nextCursor: listed.nextCursor } };
+        } else if (checked.op === "addTask") {
           taskId = (checked.payload.id && /^t_/.test(checked.payload.id)) ? checked.payload.id : (deps.mintId || mintTaskId)();
           if (deps.getTask && deps.getTask(taskId)) return httpError(409, "conflict", "id exists");
           doc = buildAddTask(checked.payload, checked.source, actor, taskId);
           if (doc.createdAt == null) doc.createdAt = new Date(now).toISOString().slice(0, 10);
           deps.commitTask({ type: "create", id: taskId, doc: doc });
+          result = httpOk(taskId);
+        } else if (checked.op === "proposeDone" || authz.propose) {
+          taskId = existing.id;
+          proposal = {
+            id: proposalIdFor(checked.source, checked.idempotencyKey),
+            kind: checked.op === "proposeDone" ? "done" : "edit",
+            by: checked.source,
+            at: new Date(now).toISOString(),
+            idempotencyKey: checked.idempotencyKey,
+            state: "pending",
+          };
+          if (checked.op === "proposeDone") {
+            if (checked.payload.note) proposal.note = checked.payload.note;
+          } else proposal.fields = editFieldsOf(checked.op, checked.payload);
+          doc = withProposal(existing, proposal);
+          deps.commitTask({
+            type: "update",
+            id: taskId,
+            doc: doc,
+            updateTime: existingMeta && existingMeta.updateTime,
+          });
+          result = httpOk(taskId, { code: "proposed", proposalId: proposal.id });
+        } else if (checked.op === "acceptProposal" || checked.op === "rejectProposal") {
+          taskId = existing.id;
+          var nextState = checked.op === "acceptProposal" ? "accepted" : "rejected";
+          marked = setProposalState(existing, checked.payload.proposalId, nextState);
+          if (!marked.proposal || marked.proposal.state === "pending") return httpError(404, "not_found", "proposal");
+          if (marked.proposal.state !== "pending" && existing.proposals) {
+            var prior = null;
+            for (var pi = 0; pi < existing.proposals.length; pi++) {
+              if (existing.proposals[pi].id === checked.payload.proposalId) prior = existing.proposals[pi];
+            }
+            if (!prior || prior.state !== "pending") return httpError(409, "conflict", "proposal");
+          }
+          if (checked.op === "acceptProposal" && marked.proposal.kind === "done") {
+            doc = applyUpdateFields(existing, { status: "done" });
+          } else if (checked.op === "acceptProposal") {
+            doc = applyUpdateFields(existing, marked.proposal.fields || {});
+          } else {
+            doc = applyUpdateFields(existing, {});
+          }
+          doc.proposals = marked.list;
+          deps.commitTask({
+            type: "update",
+            id: taskId,
+            doc: doc,
+            updateTime: existingMeta && existingMeta.updateTime,
+          });
+          result = httpOk(taskId);
         } else {
           taskId = existing.id;
           if (checked.op === "markDone") doc = applyUpdateFields(existing, { status: "done" });
@@ -359,6 +523,7 @@
             doc: doc,
             updateTime: existingMeta && existingMeta.updateTime,
           });
+          result = httpOk(taskId);
         }
       } catch (err) {
         var code = err && err.code;
@@ -367,8 +532,8 @@
         return httpError(500, "internal");
       }
 
-      result = httpOk(taskId);
-      if (deps.putIdempotency) {
+      if (!result) result = httpOk(taskId);
+      if (idempId && deps.putIdempotency) {
         deps.putIdempotency(idempId, {
           source: checked.source,
           idempotencyKey: checked.idempotencyKey,
@@ -411,6 +576,11 @@
       audit: audit,
       idempotency: idemp,
       getTask: function (id) { return tasks[id] ? { doc: tasks[id].doc, updateTime: tasks[id].updateTime } : null; },
+      listTasks: function () {
+        var out = [];
+        for (var id in tasks) if (tasks[id] && tasks[id].doc) out.push(tasks[id].doc);
+        return out;
+      },
       commitTask: function (w) {
         var cur = tasks[w.id];
         if (w.type === "create") {
