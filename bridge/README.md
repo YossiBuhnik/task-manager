@@ -53,6 +53,10 @@ Today it writes **directly to Firestore** with a service account. Its Apps Scrip
 3. During the migration window, **pause its `Code.gs` triggers**. Leave them paused until Yossi approves the unfreeze onto the bridge only.
 4. After cut-over it has no SA write of its own; only this bridge holds the service account.
 
+## Shaked
+
+`shaked` (שקד · ראש מטה) is a bot source, not an admin. It gets its own entry in the `BOT_TOKENS` Script Property (`source: "shaked"`). Do not commit token values. Shaked writes only when Yossi asks. Tasks it creates are stored with `awaitingReview: true`. It cannot `markDone`, `approveTask`, or edit another bot's task.
+
 ## Clients
 
 - `../bot-client.js` and `../bot_client.py` — one method per op, auto `idempotencyKey`, retries with the **same** key, optional Drive-queue fallback hook.

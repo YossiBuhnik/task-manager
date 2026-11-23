@@ -5,7 +5,7 @@
   "use strict";
 
   var OPS = ["addTask", "updateTask", "markDone", "setDue", "approveTask"];
-  var BOT_SOURCES = ["michal-mail", "ron-site", "noga-tour", "joe", "ido"];
+  var BOT_SOURCES = ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked"];
   var STATUSES = ["todo", "doing", "done"];
   var PRIORITIES = ["high", "mid", "low"];
   var PROTECTED = { source: 1, createdBy: 1, owner: 1, visibility: 1 };

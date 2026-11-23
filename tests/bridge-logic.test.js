@@ -18,6 +18,7 @@ const TOKENS = {
   "tok-michal": { source: "michal-mail", name: "michal" },
   "tok-joe": { source: "joe", name: "joe" },
   "tok-ido": { source: "ido", name: "ido" },
+  "tok-shaked": { source: "shaked", name: "shaked" },
 };
 
 function handler(opts) {
@@ -110,6 +111,72 @@ eq("missing task is 404", H(req({
   token: "tok-joe", source: "joe", op: "markDone",
   idempotencyKey: "joe:miss", payload: { id: "t_nope" },
 })).http, 404);
+
+console.log("shaked");
+const shaked = handler({ mintId: function () { return "t_shaked0001"; } });
+is("shaked addTask ok", shaked.handle(req({
+  token: "tok-shaked", source: "shaked", idempotencyKey: "shaked:add1",
+  payload: { title: "From shaked" },
+})).body.ok);
+eq("shaked awaitingReview", shaked.deps.tasks["t_shaked0001"].doc.awaitingReview, true);
+eq("shaked cannot markDone", shaked.handle(req({
+  token: "tok-shaked", source: "shaked", op: "markDone",
+  idempotencyKey: "shaked:done", payload: { id: "t_shaked0001" },
+})).http, 403);
+eq("shaked cannot approve", shaked.handle(req({
+  token: "tok-shaked", source: "shaked", op: "approveTask",
+  idempotencyKey: "shaked:appr", payload: { id: "t_shaked0001" },
+})).http, 403);
+shaked.deps.tasks["t_other"] = {
+  doc: { id: "t_other", title: "o", source: "michal-mail", awaitingReview: true, status: "todo", version: 1 },
+  updateTime: "ts-1",
+};
+eq("shaked cannot edit another bot's task", shaked.handle(req({
+  token: "tok-shaked", source: "shaked", op: "updateTask",
+  idempotencyKey: "shaked:upd", payload: { id: "t_other", title: "no" },
+})).http, 403);
+
+console.log("markDone and setDue replay");
+const field = handler();
+field.deps.tasks["t_field"] = {
+  doc: { id: "t_field", title: "f", source: "ron-site", awaitingReview: true, status: "todo", due: "", version: 1 },
+  updateTime: "ts-1",
+};
+const done1 = field.handle(req({
+  token: "tok-joe", source: "joe", op: "markDone",
+  idempotencyKey: "joe:field-done", payload: { id: "t_field" },
+}));
+const doneVersion = field.deps.tasks["t_field"].doc.version;
+const doneUpdateTime = field.deps.tasks["t_field"].updateTime;
+const doneReplay = field.handle(req({
+  token: "tok-joe", source: "joe", op: "markDone",
+  idempotencyKey: "joe:field-done", payload: { id: "t_field" },
+}));
+is("markDone ok", done1.body.ok);
+eq("markDone status", field.deps.tasks["t_field"].doc.status, "done");
+eq("markDone replay is 200", doneReplay.http, 200);
+eq("markDone replay same taskId", doneReplay.body.taskId, "t_field");
+eq("markDone replay does not bump version", field.deps.tasks["t_field"].doc.version, doneVersion);
+eq("markDone replay does not rewrite", field.deps.tasks["t_field"].updateTime, doneUpdateTime);
+
+field.deps.tasks["t_due"] = {
+  doc: { id: "t_due", title: "d", source: "michal-mail", awaitingReview: true, status: "todo", due: "", version: 1 },
+  updateTime: "ts-1",
+};
+const due1 = field.handle(req({
+  op: "setDue", idempotencyKey: "michal:due1", payload: { id: "t_due", due: "2026-12-01" },
+}));
+const dueVersion = field.deps.tasks["t_due"].doc.version;
+const dueUpdateTime = field.deps.tasks["t_due"].updateTime;
+const dueReplay = field.handle(req({
+  op: "setDue", idempotencyKey: "michal:due1", payload: { id: "t_due", due: "2026-12-01" },
+}));
+is("setDue ok", due1.body.ok);
+eq("setDue value", field.deps.tasks["t_due"].doc.due, "2026-12-01");
+eq("setDue replay is 200", dueReplay.http, 200);
+eq("setDue replay same taskId", dueReplay.body.taskId, "t_due");
+eq("setDue replay does not bump version", field.deps.tasks["t_due"].doc.version, dueVersion);
+eq("setDue replay does not rewrite", field.deps.tasks["t_due"].updateTime, dueUpdateTime);
 
 console.log("idempotency");
 const idemp = handler({ mintId: function () { return "t_idemp00001"; } });

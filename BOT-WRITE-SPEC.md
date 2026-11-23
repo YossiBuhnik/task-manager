@@ -28,6 +28,8 @@ The request sends the token in the JSON body field `token` (and may also send `A
 
 A token is bound to exactly one `source`. For non-Joe tokens, the request `source`, if present, must match the token's source. The **Joe token** may act on a task of any source (approve / markDone / edit).
 
+`shaked` (שקד · ראש מטה) is a bot source, not an admin. Shaked gets its own entry in the `BOT_TOKENS` Script Property. No token value is stored in the repo. Shaked writes only when Yossi asks. Tasks it creates are stored with `awaitingReview: true`.
+
 ## 3. Request schema
 
 ```json
@@ -35,7 +37,7 @@ A token is bound to exactly one `source`. For non-Joe tokens, the request `sourc
   "token": "<per-bot secret>",
   "op": "addTask" | "updateTask" | "markDone" | "setDue" | "approveTask",
   "idempotencyKey": "<required string>",
-  "source": "michal-mail" | "ron-site" | "noga-tour" | "joe" | "ido",
+  "source": "michal-mail" | "ron-site" | "noga-tour" | "joe" | "ido" | "shaked",
   "payload": {}
 }
 ```
@@ -46,9 +48,11 @@ A token is bound to exactly one `source`. For non-Joe tokens, the request `sourc
 
 - `addTask`: `{ title, due?, durationMin?, durationMax?, priority?, projectId?, cityId?, areaId?, notes?, assignee?, time?, …contract fields }`. `title` is required. Missing duration defaults to `60`/`60`. `status` defaults to `todo`. `awaitingReview` is forced to `true`. A new `t_…` id is minted unless a contract-valid id is supplied and free.
 - `updateTask`: `{ id, …partial fields }`. `id` is required. Cannot change `id`, `source`, `createdBy`, `owner`, or `visibility`. Cannot set `status` to `done` (use `markDone`).
-- `markDone`: `{ id }`. Joe token only (and a Yossi token if one is added).
-- `setDue`: `{ id, due }` where `due` is `YYYY-MM-DD` or `""`.
+- `markDone`: `{ id }` plus the request `idempotencyKey`. Sets `status` to `done`. Only the `joe` token or a `yossi` token. Joe may mark done another bot's task.
+- `setDue`: `{ id, due }` plus the request `idempotencyKey`. Sets `due` to `YYYY-MM-DD` or `""`.
 - `approveTask`: `{ id }`. Sets `awaitingReview` to `false`. **Joe token only** (Yossi approves in the app under rules). Other bot tokens cannot approve.
+
+Joe's end-of-day close uses these field updates, one call per task, addressed by `id` and `idempotencyKey`: `markDone` (`status: done`) and `setDue` (`due`). A replay of either op with the same `idempotencyKey` and the same payload returns the stored `200` and does not write again.
 
 Single-task writes are the primary path and are accepted **at any time of day**. This is required for Michal's mail-derived updates, which arrive live throughout the day (not only at end of day). Details: §7. A batch is allowed only as a compatibility wrapper (see §9): the handler splits it into per-task operations, each with its own `idempotencyKey`.
 
@@ -73,7 +77,7 @@ Joe has **no Google login**. His identity is the **`joe` bridge token** (used by
 
 | Actor | `addTask` (own source) | `updateTask` of own-source task | `updateTask` / `setDue` of another bot's task | `markDone` | `approveTask` |
 |---|---|---|---|---|---|
-| `michal-mail`, `ron-site`, `noga-tour`, `ido`, `calendar-agent` token | yes | yes, if `awaitingReview` is still true (live corrections) | no (`403`) | no (`403`) | no (`403`) |
+| `michal-mail`, `ron-site`, `noga-tour`, `ido`, `shaked`, `calendar-agent` token | yes | yes, if `awaitingReview` is still true (live corrections) | no (`403`) | no (`403`) | no (`403`) |
 | `joe` token | yes | yes | yes | yes | yes |
 | Signed-in Yossi in the app | n/a (client SDK, not this endpoint) | yes (Firestore rules) | yes (rules) | yes (rules) | yes (rules) |
 
@@ -180,3 +184,7 @@ Code lives in `bridge/` (`logic.js` + `Code.gs`) with clients `bot-client.js` an
 **Pre-migration flag.** Script Property `MIGRATION_DONE` must be `"true"` before the bridge will write. Until then every authenticated request is refused with `403 migration_pending`. This is the safe option: the bridge never writes the legacy `teams/main.state` blob (the overwrite risk). Existing writers stay on their current paths until they are frozen for PR3; after a successful migration and Yossi's approval, set the flag and unfreeze them onto this endpoint only.
 
 A `yossi` token, if added later, has the same authorization as the Joe token on this endpoint.
+
+## Decision for Yossi at review: retire updates-*.json / applyUpdates
+
+**Pending Yossi.** Recommendation: after the migration, retire the `updates-*.json` / `applyUpdates` path so there is a single write path. Keep the Drive queue only as a fallback, and drain that fallback through the bridge itself.
