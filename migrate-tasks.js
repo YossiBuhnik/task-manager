@@ -36,7 +36,9 @@
 // Existing tasks get awaitingReview: false. source is kept if already a
 // contract value, otherwise "".
 // Duration: durationMin/durationMax from the existing range, or from legacy
-// `duration` (default 60) as a min=max range.
+// `duration` (default 60) as a min=max range, clamped to 1..14400.
+// durationUnit is display-only, taken from that mapped duration:
+// under 60 minutes → "min", otherwise "hour". `shaked` is a kept source.
 // Ids are preserved. The legacy `state` blob is never deleted or modified.
 // Logs print counts and checksums only — never titles, notes, or private fields.
 
@@ -48,9 +50,9 @@ const crypto = require("crypto");
 
 const STATUS = ["todo", "doing", "done"];
 const PRIORITY = ["high", "mid", "low"];
-const SOURCES = ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "yossi", ""];
+const SOURCES = ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked", "yossi", ""];
 const DURATION_MIN = 1;
-const DURATION_MAX = 720;
+const DURATION_MAX = 14400;
 
 function jerusalemDate(now, asOf) {
   if (asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf)) return asOf;
@@ -149,6 +151,7 @@ function migrateTask(entry, { asOf, now } = {}) {
     due: t.due || "",
     durationMin: dur.durationMin,
     durationMax: dur.durationMax,
+    durationUnit: dur.durationMax < 60 ? "min" : "hour",
     duration: t.duration != null ? t.duration : dur.durationMin,
     source: normalizeSource(t.source != null ? t.source : ""),
     awaitingReview: false,

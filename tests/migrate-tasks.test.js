@@ -43,6 +43,18 @@ async function main() {
   eq("existing range kept", [ranged.durationMin, ranged.durationMax], [10, 20]);
   const mapped = plan.docs.find((d) => d.id === "t_04");
   eq("legacy duration 30 → 30-30", [mapped.durationMin, mapped.durationMax], [30, 30]);
+  eq("30 minutes → unit min", mapped.durationUnit, "min");
+  eq("range under an hour → unit min", ranged.durationUnit, "min");
+  is("unit follows the 60-minute split", plan.docs.every((d) => d.durationUnit === (d.durationMax < 60 ? "min" : "hour")));
+  const shaked = M.migrateTask({
+    task: { id: "t_sh", title: "s", source: "shaked", duration: 90, createdAt: "2026-01-15" },
+  }, { asOf: "2026-11-23" });
+  eq("shaked source kept", shaked.doc.source, "shaked");
+  eq("90 minutes → unit hour", shaked.doc.durationUnit, "hour");
+  const capped = M.migrateTask({
+    task: { id: "t_cap", title: "c", durationMin: 1, durationMax: 20000, createdAt: "2026-01-15" },
+  }, { asOf: "2026-11-23" });
+  eq("max clamps at 14400", capped.doc.durationMax, 14400);
   is("hierarchy ids filled", plan.docs.filter((d) => d.id === "t_00")[0].projectId === "p_one"
     && plan.docs.filter((d) => d.id === "t_19")[0].cityId === "c_two");
 
