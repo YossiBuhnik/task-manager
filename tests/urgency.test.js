@@ -77,7 +77,7 @@ eq("today high score = 7", uHigh.score, 7);
 const uLow = TM.urgencyOf(task({ due: TODAY, priority: "low", createdAt: TODAY }), TODAY);
 eq("today low score = -7", uLow.score, -7);
 
-console.log("listTopUrgent excludes no-due, done, and inbox; sorts by score");
+console.log("listTopUrgent excludes no-due, done, and inbox (approved only); sorts by score");
 const tasks = [
   task({ id: "t_nodue", title: "no due high", priority: "high", due: "" }),
   task({ id: "t_later", title: "later mid", priority: "mid", due: addDays(TODAY, 10) }),

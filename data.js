@@ -542,8 +542,9 @@
   const isOpenTask = (task) => !!task && task.status !== STATUS.DONE;
   const hasDueDate = (task) => !!(task && task.due);
 
-  // Open tasks that have a due date, score descending. No-due tasks are excluded.
-  // awaitingReview tasks are excluded unless includeAwaitingReview is set.
+  // Open approved tasks that have a due date, score descending.
+  // No-due and awaitingReview tasks are excluded unless opted in.
+  // Confirmed: phone top-urgent shows approved tasks only.
   const listByUrgency = (tasks, { includeDone = false, includeAwaitingReview = false, today } = {}) =>
     (tasks || [])
       .filter((t) => (includeDone || isOpenTask(t)) && hasDueDate(t))

@@ -1,8 +1,14 @@
 // DRAFT — NOT DEPLOYED.
 // Deploy only after Yossi approves. Until then the live Firebase project
-// is unchanged. Replace the placeholder emails below with the real team
-// allowlist (see SETUP.md Step 5) before any publish. Do not commit real
-// addresses unless they are already in this repository.
+// is unchanged.
+//
+// The only human Google account is yossib@tskeng-il.co.il (Yossi).
+// Bots have no Google accounts. Joe has no Google login; he acts through
+// a bridge token. Service-account / Admin SDK writes bypass these rules
+// entirely, so they are not a permitted bot path: all bot writes
+// (including calendar-agent and tasks_app.py) must go through the Apps
+// Script bridge, which enforces per-bot tokens, authorization (including
+// Joe approve / markDone), private-area policy, idempotency, and audit.
 //
 // Assumes the PR1 task schema (including durationMin/durationMax,
 // source, awaitingReview, visibility, owner). Deploy after those
@@ -16,22 +22,15 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Placeholders — same shape as SETUP.md. Replace before deploy.
+    // Yossi only. Joe is not a Google account; his powers live in the bridge.
     function allowedEmails() {
-      return [
-        "you@example.com",
-        "coworker1@example.com",
-        "coworker2@example.com"
-      ];
+      return ["yossib@tskeng-il.co.il"];
     }
 
-    // Placeholders for rule 5: only Yossi and Joe may mark done or
-    // edit a task inserted by another bot. Replace before deploy.
+    // Client-side admin (approve / markDone / edit of bot-inserted tasks).
+    // Same person as allowedEmails today. Joe is authorized only at the bridge.
     function taskAdmins() {
-      return [
-        "yossi@example.com",
-        "joe@example.com"
-      ];
+      return ["yossib@tskeng-il.co.il"];
     }
 
     function isTeamMember() {
@@ -94,8 +93,9 @@ service cloud.firestore {
         && (!("owner" in data) || data.owner == null || data.owner is string);
     }
 
-    // Bot-inserted tasks: only Yossi and Joe may edit or mark done.
-    // Manual / yossi tasks: any team member who can read the item.
+    // Bot-inserted tasks: only signed-in Yossi may edit or mark done
+    // via the client. Joe does this through the bridge (SA bypasses rules).
+    // Manual / yossi tasks: the allowlisted signed-in user who can read the item.
     function canEditTask(existing) {
       return canReadItem(existing) && (!isBotSource(existing) || isTaskAdmin());
     }
@@ -110,9 +110,9 @@ service cloud.firestore {
         && after.id == before.id;
     }
 
-    // Legacy team document (the state blob). Access unchanged from the
-    // SETUP.md template: any allowlisted teammate may read and write.
-    // Subcollections are not covered by this match.
+    // Legacy team document (the state blob). Only the signed-in human
+    // account (Yossi) may read and write. Subcollections are not covered
+    // by this match. Bot traffic must not use this path.
     match /teams/{teamId} {
       allow read, write: if isTeamMember();
 

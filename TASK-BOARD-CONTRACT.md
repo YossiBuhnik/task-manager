@@ -30,7 +30,7 @@ Path: `teams/main/tasks/{id}`.
 
 Preserved optional / legacy fields (do not drop): `assignee`, `notes`, `time`, `participants`, `emails` (`{title,url}[]`), `dependsOn` (`id[]`), `recur`, `pos`, and legacy `duration` (optional compatibility; migration sets `durationMin = durationMax = duration`, default 60).
 
-Areas, clients, and projects stay on the team document. The new model does not store `tasks` arrays on those objects as source of truth. The legacy `teams/main` `state` blob is **not** deleted (see §6).
+Areas, clients, and projects stay on the team document. The new model does not store `tasks` arrays on those objects as source of truth. The legacy `teams/main` `state` blob is **not** deleted (see §8).
 
 ### `source` enum and Hebrew labels
 
@@ -64,8 +64,8 @@ New:
 
 Store selectors (logic lives in `data.js` as pure helpers; `store.jsx` wraps them in PR1, not in PR0):
 
-- `store.listByUrgency({ includeDone?: false })` — open tasks that have a due date, sorted by `score` descending. Excludes `awaitingReview: true` unless `includeAwaitingReview` is set. [לאימות] on the inbox exclusion; assumed yes so the phone home is the board, not the review queue.
-- `store.listTopUrgent({ limit: 3 })` — first `limit` results of the above (default 3, phone home uses 2–3). **Tasks with no due date are excluded**, even if their `todoScore` is high.
+- `store.listByUrgency({ includeDone?: false })` — open **approved** tasks (`awaitingReview` is not true) that have a due date, sorted by `score` descending. Confirmed: the phone home and the default urgency list show the board, not the review queue. Pass `includeAwaitingReview: true` only when a caller explicitly wants queued items.
+- `store.listTopUrgent({ limit: 3 })` — first `limit` results of the above (default 3, phone home uses 2–3). **Tasks with no due date are excluded**, even if their `todoScore` is high. **Unapproved (`awaitingReview: true`) tasks are excluded.**
 - `store.listInbox()` — open tasks with `awaitingReview: true`.
 - `listWaitingOnOthers` is deferred.
 
@@ -107,7 +107,7 @@ Branches: `ido/contract`, `ido/data-layer`, `ido/bot-writes`, `ido/migrate`, `cl
 
 - All work is on a branch and goes in as a PR. **No push or merge to `main` without Yossi's approval.**
 - Merge order: **PR0 → PR1 → PR3 → PR2**.
-  - PR3 is the migration window (§6). PR2 may be prepared in parallel after PR1, but bots write to the new collection only after a successful PR3 migration.
+  - PR3 is the migration window (§8). PR2 may be prepared in parallel after PR1, but bots write to the new collection only after a successful PR3 migration.
   - PR4–PR5 may be written against a mock once PR0 is merged. Live data only after PR1 (and after PR3 if real tasks are required).
 - Whoever merges later rebases onto updated `main`.
 - Conflicts in Ido's files: Claude does not resolve them by editing those files. Conflicts in Claude's files: Ido does not resolve them by editing those files.
@@ -116,10 +116,10 @@ Branches: `ido/contract`, `ido/data-layer`, `ido/bot-writes`, `ido/migrate`, `cl
 ## 6. Decisions (23/11/2026)
 
 1. **Bot writes** go through the **existing Apps Script bridge**, extended with a **separate token per bot**. No Cloud Functions and no Blaze plan. The detailed endpoint spec is `BOT-WRITE-SPEC.md` on branch `ido/bot-writes-spec` (lands with PR2, not this PR).
-2. **Known writers** that today write the `teams/main` `state` blob must be **frozen or converted before migration**: `tasks_app.py` (Joe's box, `/home/box/tools/tasks_app.py`; `export` / `apply` with `markDone` / `setDue` / `addTasks`; uses secret `FIREBASE_TASKS_SA_JSON` — never read or print it) and `calendar-agent` (runtime location [לאימות]). Converting them to the new endpoint is PR2 work; freezing them is a prerequisite for the PR3 window.
+2. **Known writers** that today write Firestore directly must be **frozen or converted before migration**: `tasks_app.py` (Joe's box, `/home/box/tools/tasks_app.py`; `export` / `apply` with `markDone` / `setDue` / `addTasks`; uses secret `FIREBASE_TASKS_SA_JSON` — never read or print it) and **`calendar-agent`**, which writes **directly to Firestore with a service account**. Its Apps Script is `Code.gs` in the calendar-agent folder (not in this repo; the folder is gitignored), two-way with triggers. Converting both to the single bridge is PR2 work; pausing them (including `calendar-agent`'s `Code.gs` triggers) is a prerequisite for the PR3 window.
 3. **Private areas** are **enforced in Firestore rules by `owner`**. Task documents carry denormalized `visibility` / `owner`. Soft UI-only privacy is not enough after the split.
-4. Bot-created tasks enter the **«ממתין לסקירה»** queue (`awaitingReview: true`) and move to the board only after approval. **Michal's mail-derived updates arrive live all day**, not only at end of day: the write point must accept **single-task writes at any time**, and they must be **idempotent**.
-5. **Only Yossi and Joe** may mark done or edit a task inserted by another bot. Firestore rules and the Apps Script authorization matrix both enforce this (placeholder admin allowlist in the draft rules — no real emails in this PR).
+4. Bot-created tasks enter the **«ממתין לסקירה»** queue (`awaitingReview: true`) and move to the board only after approval. **Only Yossi and Joe may approve a task out of the queue.** A bot may edit **its own** task while `awaitingReview` is still true (needed for Michal's live mail corrections). **Michal's mail-derived updates arrive live all day**, not only at end of day: the write point must accept **single-task writes at any time**, and they must be **idempotent**. Phone top-urgent shows **approved tasks only**.
+5. **Only Yossi and Joe** may mark done or edit a task inserted by another bot. The only human Google account is `yossib@tskeng-il.co.il` (Yossi); bots have no Google accounts, and Joe has no Google login. **Yossi** is enforced in Firestore rules by that email. **Joe** is a bridge token, and "Joe may approve / markDone / edit" is enforced in the bridge, not in rules. Service-account writes bypass rules and must go through the bridge (see §7).
 6. **Temporary compatibility** with the Drive folder `task-manager-updates` (`addTasks` / `markDone` / `setDue` + `source`). The queue is **not** the source of truth; the endpoint (and then `teams/main/tasks/{id}`) is.
 7. **Duration is always a range** `durationMin` / `durationMax`. When they are equal, display one number.
 8. App name: **מנהל המשימות**.
@@ -127,11 +127,31 @@ Branches: `ido/contract`, `ido/data-layer`, `ido/bot-writes`, `ido/migrate`, `cl
 
 Client writes never replace the whole team `state` blob once PR1 lands (`setDoc` of the full blob with `merge: false` is the current overwrite risk). Legacy `teams/main` remains readable as a fallback and is not deleted by migration.
 
-## 7. Migration (PR3) — constraints for later work
+## 7. Write path decision
+
+**Keep a single Apps Script bridge as the write point for all bots**, including `calendar-agent` and `tasks_app.py`. Bots do not write to Firestore directly — not even with a service account.
+
+Reasons:
+
+1. Service-account / Admin writes **bypass Firestore rules entirely**. A direct bot write would skip private-area owner enforcement and the "only Yossi / Joe may mark done or edit another bot's task" rule.
+2. The bridge **serializes writes per task** with a transaction plus an `updatedAt` / version precondition and `idempotencyKey`, so write order is preserved and retries do not duplicate or clobber.
+3. There is **one audit log** and **one token per bot**.
+
+The speed cost is acceptable: writes are single-task and volume is low.
+
+The **app UI (Yossi)** writes per-task documents **directly**, with transactions, **under the rules** (PR1). That path stays in the client; it is not routed through the bridge.
+
+Joe's identity is a **bridge token**, not a Google login, so "Joe may approve / markDone" is enforced in the bridge. "Yossi" is enforced in rules by email (`yossib@tskeng-il.co.il`).
+
+## 8. Migration (PR3) — constraints for later work
 
 Script name (repo is flat): `migrate-tasks.js`.
 
-1. Freeze bot writers (including Drive queue, `tasks_app.py`, and `calendar-agent`) for the window.
+1. Freeze every bot writer for the window, explicitly including:
+   - the Drive queue `task-manager-updates`;
+   - `tasks_app.py` (`apply`; export/backup may remain);
+   - **`calendar-agent` as a direct Firestore writer** (service account) **and its `Code.gs` triggers**, which must be paused so two-way calendar sync cannot write during migration.
+   PR2 converts both `calendar-agent` and `tasks_app.py` onto the single bridge (own token and source key; no leftover direct writes) before this window.
 2. Backup: local JSON export + Drive copy, with a recorded SHA-256 checksum. No deletion.
 3. Dry-run first: counts, missing fields, `duration` → range mapping, tasks missing `createdAt`. No Firebase writes in dry-run.
 4. Write `teams/main/tasks/{id}` preserving `t_…` ids. Do **not** delete or thin the legacy `state` blob.
@@ -139,6 +159,6 @@ Script name (repo is flat): `migrate-tasks.js`.
 6. Rollback: app flag to read the blob only; the new collection remains but is unused. No automatic deletion.
 7. After Yossi approves: unfreeze bot writers onto the new endpoint only.
 
-## 8. Contract-change rule
+## 9. Contract-change rule
 
 Amendments require a PR by Ido and Yossi's explicit approval. A comment, a UI PR, or a bot-write PR cannot silently change this contract.
