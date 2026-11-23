@@ -191,6 +191,11 @@ After a successful migration and Yossi's approval:
 
 `replaceAll` / `resetSeed` (import JSON / reset to sample data) are local and demo only; they are disabled when signed in to the cloud.
 
+## Migration (PR3)
+
+`migrate-tasks.js` copies tasks from a `teams/main.state` JSON export into `teams/main/tasks/{id}`. Default mode is **dry-run** (counts and a SHA-256 of the input only; no writes). Do not run a live write until Yossi approves. Follow the freeze checklist in the script header (pause `tasks_app.py` apply, calendar-agent direct writes and `Code.gs` triggers, and the Drive queue) and keep the legacy `state` blob untouched. Rollback is `window.TM_FLAGS.readLegacyBlob = true`.
+
+
 Private-area enforcement and "only Yossi may edit a bot-inserted task" in the client match the draft rules. After the rules are published, private areas are also enforced on the server by `owner`. Until they are published, the soft-privacy caveat in the visibility section still applies to the live project.
 
 ## Troubleshooting
