@@ -154,10 +154,10 @@ const URGENT_BUCKETS = { overdue: 1, today: 1, soon: 1 };
 const isOpenRow = (r) => r.task.status !== "done";
 const isBoardRow = (r) => !r.task.awaitingReview;
 
-// "Waiting on others": open, and waitingOn is set, or status is "waiting".
-// Assignee and bot source do not count.
+// "Waiting on others": approved open tasks with waitingOn set, or status "waiting".
+// Review-queue rows stay out. Assignee and bot source do not count.
 function isWaitingRow(r) {
-  return window.TM.isWaitingOnOthers(r.task);
+  return isOpenRow(r) && isBoardRow(r) && window.TM.isWaitingOnOthers(r.task);
 }
 
 function boardDue(task) {

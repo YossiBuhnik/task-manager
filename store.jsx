@@ -303,10 +303,7 @@ function useStore(cloud) {
       const plan = window.TM.moveTaskInState(d, taskId, targetProjectId);
       if (!plan.ok || !plan.moved) return plan.ok ? plan.state : d;
       const c = cloudRef.current;
-      if (c && c.writesEnabled) {
-        if (c.readLegacyBlob && c.moveTaskDoc) c.moveTaskDoc(taskId, targetProjectId);
-        else c.updateTaskDoc(current.id, plan.fields, current.version);
-      }
+      if (c && c.writesEnabled && c.moveTaskDoc) c.moveTaskDoc(taskId, targetProjectId);
       return plan.state;
     }),
 

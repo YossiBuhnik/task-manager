@@ -191,6 +191,19 @@ function createLayer(fb, { readLegacyBlob = false } = {}) {
     createTask: (task) => runTaskTx(task.id, { type: "create", task }),
     updateTaskDoc: (taskId, fields, expectedVersion) =>
       runTaskTx(taskId, { type: "update", fields, expectedVersion }),
+    moveTaskDoc: async (taskId, targetProjectId) => {
+      if (readLegacyBlob) return runTaskTx(taskId, { type: "move", targetProjectId });
+      const team = fb._team.data && fb._team.data.state;
+      const tasks = [...fb._tasks.values()];
+      const tree = TM.assembleData({ teamState: team, tasks, readLegacyBlob: false });
+      const plan = TM.moveTaskInState(tree, taskId, targetProjectId);
+      if (!plan.ok || !plan.moved) return plan.ok ? { ok: true } : plan;
+      return runTaskTx(taskId, {
+        type: "update",
+        fields: plan.fields,
+        expectedVersion: plan.task.version,
+      });
+    },
     deleteTaskDoc: (taskId, expectedVersion) =>
       runTaskTx(taskId, { type: "delete", expectedVersion }),
     approveTask: (taskId, expectedVersion) =>
@@ -413,6 +426,19 @@ async function main() {
     eq("per-task id kept", doc.doc.id, "t_move");
     eq("per-task project", doc.doc.projectId, "p2");
     eq("per-task activity", doc.doc.activity.length, 2);
+    const fb = createMemoryFirestore();
+    fb.seedTeam(team);
+    const layer = createLayer(fb, { readLegacyBlob: false });
+    const created = await layer.createTask({ ...task, version: 1, status: "todo", priority: "mid", source: "", awaitingReview: false });
+    is("per-task create ok", created.ok);
+    const viaApi = await layer.moveTaskDoc("t_move", "p2");
+    is("moveTaskDoc ok", viaApi.ok);
+    const stored = fb._tasks.get("t_move");
+    eq("moveTaskDoc id", stored.id, "t_move");
+    eq("moveTaskDoc project", stored.projectId, "p2");
+    eq("moveTaskDoc city", stored.cityId, "c2");
+    eq("moveTaskDoc area", stored.areaId, "area_pm");
+    eq("moveTaskDoc activity", stored.activity.map((a) => a.op), ["note", "move"]);
   }
 
   console.log("");

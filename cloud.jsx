@@ -272,7 +272,18 @@ function useCloud() {
     if (readLegacy()) {
       return runLegacyTx({ kind: "task", type: "move", taskId, targetProjectId });
     }
-    return { ok: false, error: { code: "use-update" } };
+    const tree = window.TM.assembleData({
+      teamState: teamStateRef.current,
+      tasks: tasksRef.current,
+      readLegacyBlob: false,
+    });
+    const plan = window.TM.moveTaskInState(tree, taskId, targetProjectId);
+    if (!plan.ok || !plan.moved) return plan.ok ? { ok: true } : plan;
+    return runTaskTx(taskId, {
+      type: "update",
+      fields: plan.fields,
+      expectedVersion: plan.task.version,
+    });
   }, [mode]);
   const deleteTaskDoc = cUseCallback((taskId, expectedVersion) =>
     runTaskTx(taskId, { type: "delete", expectedVersion }), [mode]);
