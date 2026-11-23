@@ -3,7 +3,7 @@
 // deploy shows up on the next open, with the cache as the offline fallback);
 // cache-first for CDN libraries; Firebase APIs are never intercepted.
 
-const VERSION = "v5";
+const VERSION = "v6";
 const SHELL_CACHE = `tm-shell-${VERSION}`;
 
 // Files that make up the app shell. Paths are relative to scope (the folder

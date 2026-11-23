@@ -177,6 +177,22 @@ Each תחום (top-level area) has a visibility setting in the edit modal:
 
 ---
 
+## Per-task collection (PR1)
+
+After migration, tasks live at **`teams/main/tasks/{id}`**. The team document `teams/main` keeps areas, clients, and projects only (no task arrays as source of truth). The app writes **one task document at a time** (transaction + `version` / `updatedAt` precondition) and uses field-level `updateDoc` for the team doc.
+
+Until PR3 has run, keep `window.TM_FLAGS.readLegacyBlob = true` in `firebase-config.js` (the default). In that mode the app stays **fully working** on the legacy `teams/main.state` blob: reads and writes. Writes go through a **transaction** that re-reads `state`, applies only the changed task(s) by id, and writes the merged state back — not a blind `setDoc` of a stale local copy, so a concurrent bot edit to another task is not lost. A first-time team document may be created with `setDoc(..., { merge: true })` only if the transaction sees that the doc does not exist; an existing doc is never overwritten with `setDoc`.
+
+After a successful migration and Yossi's approval:
+
+1. Deploy the draft `firestore.rules` **only after Yossi approves** (the live rules stay as they are until then).
+2. Set `window.TM_FLAGS.readLegacyBlob = false` and redeploy the app. From then on, reads and writes use the per-task collection.
+3. To roll back, set the flag back to `true`. The new collection is left in place and unused; the legacy blob is not deleted.
+
+`replaceAll` / `resetSeed` (import JSON / reset to sample data) are local and demo only; they are disabled when signed in to the cloud.
+
+Private-area enforcement and "only Yossi may edit a bot-inserted task" in the client match the draft rules. After the rules are published, private areas are also enforced on the server by `owner`. Until they are published, the soft-privacy caveat in the visibility section still applies to the live project.
+
 ## Troubleshooting
 
 **"Sign-in failed: permission denied"** — your email isn't in the Firestore rules allowlist. Fix it in the Firebase console → Firestore → Rules → Publish.

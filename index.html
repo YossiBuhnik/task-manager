@@ -35,15 +35,15 @@
       onAuthStateChanged
     } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
     import {
-      getFirestore, doc, onSnapshot, setDoc, serverTimestamp,
-      enableIndexedDbPersistence
+      getFirestore, doc, collection, onSnapshot, setDoc, updateDoc, deleteDoc,
+      runTransaction, serverTimestamp, enableIndexedDbPersistence
     } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
     window.__fb = {
       initializeApp,
       getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
-      getFirestore, doc, onSnapshot, setDoc, serverTimestamp,
-      enableIndexedDbPersistence,
+      getFirestore, doc, collection, onSnapshot, setDoc, updateDoc, deleteDoc,
+      runTransaction, serverTimestamp, enableIndexedDbPersistence,
     };
   </script>
 

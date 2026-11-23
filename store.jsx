@@ -11,47 +11,108 @@ function loadInitial() {
   return JSON.parse(JSON.stringify(window.TM.SEED));
 }
 
+function findTaskInData(data, taskId) {
+  for (const t of window.TM.allTasks(data || { cities: [] })) {
+    if (t.id === taskId) return t;
+  }
+  return null;
+}
+
 function useStore(cloud) {
   const isCloud = cloud && cloud.mode === "signedIn";
+  const writesOn = !!(isCloud && cloud.writesEnabled);
   const [data, setData] = React.useState(() => isCloud ? null : loadInitial());
   const skipNextSave = React.useRef(false);
+  const dataRef = React.useRef(data);
+  dataRef.current = data;
+  const cloudRef = React.useRef(cloud);
+  cloudRef.current = cloud;
+
+  const userEmail = () => (cloudRef.current && cloudRef.current.user && cloudRef.current.user.email) || "";
 
   // ── pull remote → local when cloud data arrives ──
   React.useEffect(() => {
     if (!isCloud) return;
     if (cloud.data) {
       const migrated = window.TM.migrate(cloud.data);
-      // Recurring tasks completed elsewhere (another device, the Apps Script bridge)
-      // roll to their next date here — and that change is saved back.
       const rolled = window.TM.rollAllRecurring(migrated);
-      skipNextSave.current = rolled === migrated;
+      skipNextSave.current = true;
       setData(rolled);
+      if (writesOn && rolled !== migrated) {
+        // Persist recurrences as per-task updates, never as a blob write.
+        const before = new Map(window.TM.allTasks(migrated).map((t) => [t.id, t]));
+        for (const t of window.TM.allTasks(rolled)) {
+          const prev = before.get(t.id);
+          if (prev && (prev.due !== t.due || prev.status !== t.status || prev.lastDone !== t.lastDone)) {
+            cloud.updateTaskDoc(t.id, { due: t.due, status: t.status, lastDone: t.lastDone }, t.version);
+          }
+        }
+      }
     }
-  }, [isCloud, cloud && cloud.data]);
+  }, [isCloud, writesOn, cloud && cloud.data]);
 
-  // ── persist local → backing store ──
+  // ── persist local → localStorage only. Cloud task/team writes go through
+  //    per-document APIs in the actions; the debounce full-blob save is gone. ──
   React.useEffect(() => {
     if (data === null) return;
     if (skipNextSave.current) { skipNextSave.current = false; return; }
-    if (isCloud) {
-      cloud.save(data);
-    } else {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) {}
-    }
+    if (isCloud) return;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) {}
   }, [data, isCloud]);
 
-  // ─── update helpers (immutable) ─────────────────────────────
   const update = React.useCallback((fn) => setData(prev => fn(prev)), []);
+
+  const persistTeam = (next) => {
+    const c = cloudRef.current;
+    if (c && c.writesEnabled) {
+      const state = window.TM.teamStateForWrite(next);
+      c.updateTeamState(state);
+    }
+    return next;
+  };
+
+  const persistNewTask = (task) => {
+    const c = cloudRef.current;
+    if (c && c.writesEnabled) c.createTask(task);
+  };
+
+  const persistTaskUpdate = (task, fields) => {
+    const c = cloudRef.current;
+    if (c && c.writesEnabled) c.updateTaskDoc(task.id, fields, task.version);
+  };
+
+  const persistTaskDelete = (task) => {
+    const c = cloudRef.current;
+    if (c && c.writesEnabled) c.deleteTaskDoc(task.id, task.version);
+  };
+
+  const guardEdit = (task) => {
+    if (!isCloud) return true;
+    const email = userEmail();
+    if (!window.TM.canEditTask(task, email, dataRef.current)) {
+      console.warn("edit blocked by client guard", task && task.id);
+      return false;
+    }
+    return true;
+  };
+
+  const guardApprove = (task) => {
+    if (!isCloud) return true;
+    if (!window.TM.canApproveTask(task, userEmail(), dataRef.current)) {
+      console.warn("approve blocked by client guard", task && task.id);
+      return false;
+    }
+    return true;
+  };
 
   const actions = React.useMemo(() => ({
     // AREA (תחום)
-    addArea: (name, opts = {}) => update(d => ({ ...d, areas: [...d.areas, window.TM.newArea(name, opts)] })),
-    updateArea: (areaId, fields) => update(d => ({
+    addArea: (name, opts = {}) => update(d => persistTeam({ ...d, areas: [...d.areas, window.TM.newArea(name, opts)] })),
+    updateArea: (areaId, fields) => update(d => persistTeam({
       ...d,
       areas: d.areas.map(a => a.id === areaId ? { ...a, ...fields } : a),
     })),
-    // Deleting an area keeps its clients — they move to "ללא תחום".
-    deleteArea: (areaId) => update(d => ({
+    deleteArea: (areaId) => update(d => persistTeam({
       ...d,
       areas: d.areas.filter(a => a.id !== areaId),
       cities: d.cities.map(c => c.areaId === areaId ? { ...c, areaId: null } : c),
@@ -60,50 +121,75 @@ function useStore(cloud) {
       const next = [...d.areas];
       const [moved] = next.splice(fromIdx, 1);
       next.splice(toIdx, 0, moved);
-      return { ...d, areas: next };
+      return persistTeam({ ...d, areas: next });
     }),
 
     // CITY (מזמין עבודה)
-    addCity: (name, opts = {}) => update(d => ({ ...d, cities: [...d.cities, window.TM.newCity(name, opts)] })),
-    updateCity: (cityId, fields) => update(d => ({
+    addCity: (name, opts = {}) => update(d => persistTeam({ ...d, cities: [...d.cities, window.TM.newCity(name, opts)] })),
+    updateCity: (cityId, fields) => update(d => persistTeam({
       ...d,
       cities: d.cities.map(c => c.id === cityId ? { ...c, ...fields } : c),
     })),
-    deleteCity: (cityId) => update(d => ({
-      ...d, cities: d.cities.filter(c => c.id !== cityId),
-    })),
+    deleteCity: (cityId) => update(d => {
+      const city = d.cities.find(c => c.id === cityId);
+      if (city) {
+        for (const p of city.projects || []) {
+          for (const t of p.tasks || []) persistTaskDelete(t);
+        }
+      }
+      return persistTeam({
+        ...d, cities: d.cities.filter(c => c.id !== cityId),
+      });
+    }),
     reorderCities: (fromIdx, toIdx) => update(d => {
       const next = [...d.cities];
       const [moved] = next.splice(fromIdx, 1);
       next.splice(toIdx, 0, moved);
-      return { ...d, cities: next };
+      return persistTeam({ ...d, cities: next });
     }),
 
     // PROJECT
-    addProject: (cityId, name, summary, withStandardTasks, opts = {}) => update(d => ({
-      ...d,
-      cities: d.cities.map(c => c.id === cityId ? {
-        ...c,
-        projects: [...c.projects, {
-          ...window.TM.newProject(name, summary, opts),
-          tasks: withStandardTasks ? window.TM.standardTasks() : [],
-        }],
-      } : c),
-    })),
-    updateProject: (cityId, projectId, fields) => update(d => ({
+    addProject: (cityId, name, summary, withStandardTasks, opts = {}) => update(d => {
+      const project = {
+        ...window.TM.newProject(name, summary, opts),
+        tasks: [],
+      };
+      const std = withStandardTasks ? window.TM.standardTasks() : [];
+      const city = d.cities.find(c => c.id === cityId);
+      const tasks = std.map((t) => window.TM.normalizeTask({
+        ...t, projectId: project.id, cityId, areaId: city ? city.areaId : "",
+        source: "", awaitingReview: false,
+      }, d, userEmail()));
+      const next = {
+        ...d,
+        cities: d.cities.map(c => c.id === cityId ? {
+          ...c,
+          projects: [...c.projects, { ...project, tasks }],
+        } : c),
+      };
+      persistTeam(next);
+      tasks.forEach(persistNewTask);
+      return next;
+    }),
+    updateProject: (cityId, projectId, fields) => update(d => persistTeam({
       ...d,
       cities: d.cities.map(c => c.id === cityId ? {
         ...c,
         projects: c.projects.map(p => p.id === projectId ? { ...p, ...fields } : p),
       } : c),
     })),
-    deleteProject: (cityId, projectId) => update(d => ({
-      ...d,
-      cities: d.cities.map(c => c.id === cityId ? {
-        ...c, projects: c.projects.filter(p => p.id !== projectId),
-      } : c),
-    })),
-    reorderProjects: (cityId, fromIdx, toIdx) => update(d => ({
+    deleteProject: (cityId, projectId) => update(d => {
+      const city = d.cities.find(c => c.id === cityId);
+      const project = city && city.projects.find(p => p.id === projectId);
+      if (project) for (const t of project.tasks || []) persistTaskDelete(t);
+      return persistTeam({
+        ...d,
+        cities: d.cities.map(c => c.id === cityId ? {
+          ...c, projects: c.projects.filter(p => p.id !== projectId),
+        } : c),
+      });
+    }),
+    reorderProjects: (cityId, fromIdx, toIdx) => update(d => persistTeam({
       ...d,
       cities: d.cities.map(c => {
         if (c.id !== cityId) return c;
@@ -113,52 +199,83 @@ function useStore(cloud) {
         return { ...c, projects: next };
       }),
     })),
-    addStandardTasks: (cityId, projectId) => update(d => ({
-      ...d,
-      cities: d.cities.map(c => c.id === cityId ? {
-        ...c,
-        projects: c.projects.map(p => p.id === projectId ? {
-          ...p, tasks: [...p.tasks, ...window.TM.standardTasks()],
-        } : p),
-      } : c),
-    })),
-
-    // TASK
-    addTask: (cityId, projectId, fields) => update(d => {
-      const base = window.TM.newTask(typeof fields === "string" ? fields : (fields.title || ""));
-      const next = window.TM.rollTask(typeof fields === "string" ? base : { ...base, ...fields });
+    addStandardTasks: (cityId, projectId) => update(d => {
+      const city = d.cities.find(c => c.id === cityId);
+      const added = window.TM.standardTasks().map((t) => window.TM.normalizeTask({
+        ...t, projectId, cityId, areaId: city ? city.areaId : "",
+        source: "", awaitingReview: false,
+      }, d, userEmail()));
+      added.forEach(persistNewTask);
       return {
         ...d,
         cities: d.cities.map(c => c.id === cityId ? {
           ...c,
           projects: c.projects.map(p => p.id === projectId ? {
-            ...p, tasks: [...p.tasks, next],
+            ...p, tasks: [...p.tasks, ...added],
           } : p),
         } : c),
       };
     }),
-    updateTask: (cityId, projectId, taskId, fields) => update(d => ({
-      ...d,
-      cities: d.cities.map(c => c.id === cityId ? {
-        ...c,
-        projects: c.projects.map(p => p.id === projectId ? {
-          ...p, tasks: p.tasks.map(t => t.id === taskId ? window.TM.rollTask({ ...t, ...fields }) : t),
-        } : p),
-      } : c),
-    })),
-    deleteTask: (cityId, projectId, taskId) => update(d => ({
-      ...d,
-      cities: d.cities.map(c => c.id === cityId ? {
-        ...c,
-        projects: c.projects.map(p => p.id === projectId ? {
-          ...p,
-          // …and drop it from other tasks' prerequisites
-          tasks: p.tasks.filter(t => t.id !== taskId).map(t =>
-            (t.dependsOn || []).includes(taskId)
-              ? { ...t, dependsOn: t.dependsOn.filter(id => id !== taskId) } : t),
-        } : p),
-      } : c),
-    })),
+
+    // TASK — signatures unchanged so the UI keeps working.
+    addTask: (cityId, projectId, fields) => update(d => {
+      const city = d.cities.find(c => c.id === cityId);
+      const base = window.TM.newTask(typeof fields === "string" ? fields : (fields.title || ""));
+      const merged = window.TM.rollTask(typeof fields === "string" ? base : { ...base, ...fields });
+      const nextTask = window.TM.normalizeTask({
+        ...merged,
+        projectId, cityId, areaId: city ? city.areaId : "",
+        source: (merged.source != null && merged.source !== undefined) ? merged.source : "",
+        awaitingReview: false,
+        createdBy: userEmail() || "yossi",
+      }, d, userEmail());
+      if (isCloud && window.TM.isBotSourceKey(nextTask.source) && !window.TM.isYossi(userEmail())) {
+        console.warn("create blocked: client may not write a bot source");
+        return d;
+      }
+      persistNewTask(nextTask);
+      return {
+        ...d,
+        cities: d.cities.map(c => c.id === cityId ? {
+          ...c,
+          projects: c.projects.map(p => p.id === projectId ? {
+            ...p, tasks: [...p.tasks, nextTask],
+          } : p),
+        } : c),
+      };
+    }),
+    updateTask: (cityId, projectId, taskId, fields) => update(d => {
+      const current = findTaskInData(d, taskId);
+      if (!current || !guardEdit(current)) return d;
+      const rolled = window.TM.rollTask({ ...current, ...fields });
+      persistTaskUpdate(current, fields);
+      return {
+        ...d,
+        cities: d.cities.map(c => c.id === cityId ? {
+          ...c,
+          projects: c.projects.map(p => p.id === projectId ? {
+            ...p, tasks: p.tasks.map(t => t.id === taskId ? rolled : t),
+          } : p),
+        } : c),
+      };
+    }),
+    deleteTask: (cityId, projectId, taskId) => update(d => {
+      const current = findTaskInData(d, taskId);
+      if (!current || !guardEdit(current)) return d;
+      persistTaskDelete(current);
+      return {
+        ...d,
+        cities: d.cities.map(c => c.id === cityId ? {
+          ...c,
+          projects: c.projects.map(p => p.id === projectId ? {
+            ...p,
+            tasks: p.tasks.filter(t => t.id !== taskId).map(t =>
+              (t.dependsOn || []).includes(taskId)
+                ? { ...t, dependsOn: t.dependsOn.filter(id => id !== taskId) } : t),
+          } : p),
+        } : c),
+      };
+    }),
     reorderTasks: (cityId, projectId, fromIdx, toIdx) => update(d => ({
       ...d,
       cities: d.cities.map(c => c.id === cityId ? {
@@ -168,26 +285,86 @@ function useStore(cloud) {
           const next = [...p.tasks];
           const [moved] = next.splice(fromIdx, 1);
           next.splice(toIdx, 0, moved);
-          return { ...p, tasks: next };
+          next.forEach((t, i) => {
+            if (t.pos !== i) persistTaskUpdate(t, { pos: i });
+          });
+          return { ...p, tasks: next.map((t, i) => ({ ...t, pos: i })) };
         }),
       } : c),
     })),
 
-    // DATA
-    replaceAll: (newData) => setData(window.TM.migrate(newData)),
-    resetSeed: () => setData(JSON.parse(JSON.stringify(window.TM.SEED))),
-    clearAll: () => setData({ areas: [], cities: [] }),
-  }), [update]);
+    approveTask: (cityIdOrId, projectId, taskId) => update(d => {
+      const id = taskId || cityIdOrId;
+      const current = findTaskInData(d, id);
+      if (!current || !guardApprove(current)) return d;
+      persistTaskUpdate(current, { awaitingReview: false });
+      const patch = (t) => t.id === id ? { ...t, awaitingReview: false } : t;
+      return {
+        ...d,
+        cities: d.cities.map(c => ({
+          ...c,
+          projects: c.projects.map(p => ({ ...p, tasks: p.tasks.map(patch) })),
+        })),
+      };
+    }),
+
+    resolveDup: (taskId, resolution = {}) => update(d => {
+      const current = findTaskInData(d, taskId);
+      if (!current || !guardEdit(current)) return d;
+      const fields = {
+        dupGroup: resolution.dupGroup != null ? resolution.dupGroup : "",
+        dupLabel: resolution.dupLabel != null ? resolution.dupLabel : "",
+      };
+      persistTaskUpdate(current, fields);
+      return {
+        ...d,
+        cities: d.cities.map(c => ({
+          ...c,
+          projects: c.projects.map(p => ({
+            ...p,
+            tasks: p.tasks.map(t => t.id === taskId ? { ...t, ...fields } : t),
+          })),
+        })),
+      };
+    }),
+
+    listByUrgency: (opts) => window.TM.listByUrgency(window.TM.allTasks(dataRef.current), opts),
+    listTopUrgent: (opts) => window.TM.listTopUrgent(window.TM.allTasks(dataRef.current), opts),
+    listInbox: () => window.TM.listInbox(window.TM.allTasks(dataRef.current)),
+
+    // DATA — replaceAll / resetSeed are local/demo only. In signed-in cloud
+    // mode they no-op (both legacy and per-task paths).
+    replaceAll: (newData) => {
+      const isCloudNow = !!(cloudRef.current && cloudRef.current.mode === "signedIn");
+      if (!window.TM.canBulkReplaceData(isCloudNow)) {
+        console.warn("replaceAll is disabled in cloud mode; local/demo only");
+        return;
+      }
+      setData(window.TM.migrate(newData));
+    },
+    resetSeed: () => {
+      const isCloudNow = !!(cloudRef.current && cloudRef.current.mode === "signedIn");
+      if (!window.TM.canBulkReplaceData(isCloudNow)) {
+        console.warn("resetSeed is disabled in cloud mode; local/demo only");
+        return;
+      }
+      setData(JSON.parse(JSON.stringify(window.TM.SEED)));
+    },
+    clearAll: () => {
+      const cur = dataRef.current;
+      if (cur) for (const t of window.TM.allTasks(cur)) persistTaskDelete(t);
+      const empty = { areas: [], cities: [] };
+      setData(empty);
+      persistTeam(empty);
+    },
+  }), [update, isCloud]);
 
   return [data, actions];
 }
 
 // ─── derived helpers ──────────────────────────────────────────
-// Pseudo-area for clients that aren't assigned to any (existing) area.
 const UNASSIGNED_AREA = { id: "__none", name: "ללא תחום", visibility: "shared", owner: null, isUnassigned: true };
 
-// What this user may see, as a tree: [{ area, clients: [{ city, projects }] }].
-// Anything private at any level (area / client / project) is shown only to its owner.
 function visibleTree(data, userEmail) {
   const canSee = window.TM.canSee;
   const areaIds = new Set(data.areas.map(a => a.id));
@@ -229,8 +406,6 @@ function summarize(data, userEmail) {
   };
 }
 
-// Open tasks for the dashboard TODO list, one group per area. Dated tasks are
-// ranked by urgency; undated ones are only summarized per project.
 function buildTodos(data, userEmail) {
   const { todoScore } = window.TM;
   return visibleTree(data, userEmail).map(({ area, clients }) => {
@@ -251,11 +426,20 @@ function buildTodos(data, userEmail) {
   });
 }
 
+function listByUrgency(data, opts) {
+  return window.TM.listByUrgency(window.TM.allTasks(data), opts);
+}
+function listTopUrgent(data, opts) {
+  return window.TM.listTopUrgent(window.TM.allTasks(data), opts);
+}
+function listInbox(data) {
+  return window.TM.listInbox(window.TM.allTasks(data));
+}
+
 function findArea(data, areaId) {
   if (areaId === UNASSIGNED_AREA.id) return UNASSIGNED_AREA;
   return data.areas.find(a => a.id === areaId) || null;
 }
-// The area a client belongs to (UNASSIGNED_AREA if none / deleted).
 function areaOf(data, city) {
   return data.areas.find(a => a.id === city.areaId) || UNASSIGNED_AREA;
 }
@@ -270,7 +454,6 @@ function findProject(data, cityId, projectId) {
   return [city, project];
 }
 
-// ─── hash routing ────────────────────────────────────────────
 function parseHash() {
   const h = (window.location.hash || "#/").replace(/^#/, "");
   const parts = h.split("/").filter(Boolean);
@@ -297,5 +480,6 @@ function go(path) {
 Object.assign(window, {
   useStore, useRoute, go,
   UNASSIGNED_AREA, visibleTree, summarize, buildTodos,
+  listByUrgency, listTopUrgent, listInbox,
   findArea, areaOf, findCity, findProject,
 });
