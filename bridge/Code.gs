@@ -90,6 +90,8 @@ function handleWithDeps_(raw, headers) {
     migrationDone: props.getProperty("MIGRATION_DONE") === "true",
     mintId: function () { return TMBridge.mintTaskId(); },
     getTask: getTask_,
+    listTasks: listTasks_,
+    getTeamState: getTeamState_,
     commitTask: commitTask_,
     getIdempotency: getIdempotency_,
     putIdempotency: putIdempotency_,
@@ -229,6 +231,48 @@ function firestoreCommit_(writes) {
   if (code === 404) { var e2 = new Error("not_found"); e2.code = "not_found"; throw e2; }
   if (code >= 400) throw new Error("firestore commit " + code);
   return JSON.parse(resp.getContentText() || "{}");
+}
+
+// Read every task document. Firestore REST pages with nextPageToken.
+// Never writes. The document id is taken from the path when the body omits id.
+function listTasks_() {
+  var out = [];
+  var pageToken = "";
+  do {
+    var url = "https://firestore.googleapis.com/v1/" + docName_("teams/main/tasks") + "?pageSize=300";
+    if (pageToken) url += "&pageToken=" + encodeURIComponent(pageToken);
+    var resp = UrlFetchApp.fetch(url, {
+      method: "get",
+      headers: { Authorization: "Bearer " + getAccessToken_() },
+      muteHttpExceptions: true,
+    });
+    if (resp.getResponseCode() === 404) return out;
+    if (resp.getResponseCode() >= 400) throw new Error("firestore list " + resp.getResponseCode());
+    var body = JSON.parse(resp.getContentText() || "{}");
+    var docs = body.documents || [];
+    var i, doc;
+    for (i = 0; i < docs.length; i++) {
+      doc = fromFirestoreDoc_(docs[i]);
+      if (!doc) continue;
+      if (!doc.id && docs[i].name) {
+        var parts = String(docs[i].name).split("/");
+        doc.id = parts[parts.length - 1];
+      }
+      out.push(doc);
+    }
+    pageToken = body.nextPageToken || "";
+  } while (pageToken);
+  return out;
+}
+
+// Read-only. Areas, cities, and projects still live on teams/main.state.
+function getTeamState_() {
+  var doc = firestoreGet_("teams/main");
+  if (!doc) return { areas: [], cities: [] };
+  var data = fromFirestoreDoc_(doc);
+  var state = data && data.state;
+  if (!state || typeof state !== "object") return { areas: [], cities: [] };
+  return state;
 }
 
 function getTask_(id) {

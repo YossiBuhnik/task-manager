@@ -404,6 +404,7 @@ const michalRefs = extra.handle(req({ op: "listRefs", idempotencyKey: "michal:re
 eq("listRefs code", michalRefs.body.code, "ok");
 eq("non-admin areas", michalRefs.body.areas.map((a) => a.id), ["area_office"]);
 eq("non-admin hides private project", michalRefs.body.projects.map((p) => p.id), ["p_pub"]);
+eq("private project under shared city is hidden", michalRefs.body.projects.some((p) => p.id === "p_priv"), false);
 eq("non-admin cities", michalRefs.body.cities.map((c) => c.id), ["c_pub"]);
 eq("ref fields only", Object.keys(michalRefs.body.areas[0]).sort(), ["id", "name"]);
 const joeRefs = extra.handle(req({ token: "tok-joe", source: "joe", op: "listRefs", idempotencyKey: "joe:refs", payload: {} }));
@@ -418,6 +419,25 @@ is("calendar-agent addTask ok", extra.handle(req({
 })).body.ok);
 eq("calendar-agent awaitingReview", extra.deps.tasks["t_cal1"].doc.awaitingReview, true);
 eq("calendar-agent source", extra.deps.tasks["t_cal1"].doc.source, "calendar-agent");
+
+extra.deps.tasks["t_priv_task"] = {
+  doc: { id: "t_priv_task", title: "private title", status: "todo", source: "michal-mail", visibility: "private", areaId: "area_office", projectId: "p_pub", cityId: "c_pub", awaitingReview: false },
+  updateTime: "ts",
+};
+extra.deps.tasks["t_priv_area"] = {
+  doc: { id: "t_priv_area", title: "area title", status: "todo", source: "michal-mail", visibility: "shared", areaId: "area_priv", projectId: "p_under", cityId: "c_priv", awaitingReview: false },
+  updateTime: "ts",
+};
+const hidden = extra.handle(req({ op: "listTasks", idempotencyKey: "michal:priv", payload: { limit: 50 } }));
+const hiddenIds = hidden.body.tasks.map((t) => t.id);
+eq("non-admin omits private task", hiddenIds.indexOf("t_priv_task"), -1);
+eq("non-admin omits task in private area", hiddenIds.indexOf("t_priv_area"), -1);
+const adminList = extra.handle(req({
+  token: "tok-joe", source: "joe", op: "listTasks", idempotencyKey: "joe:priv", payload: { limit: 50 },
+}));
+const adminIds = adminList.body.tasks.map((t) => t.id);
+is("admin sees private task", adminIds.indexOf("t_priv_task") !== -1);
+is("admin sees task in private area", adminIds.indexOf("t_priv_area") !== -1);
 
 console.log("");
 console.log(passed + " passed, " + failed + " failed");

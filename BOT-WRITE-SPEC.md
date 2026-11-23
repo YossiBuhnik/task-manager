@@ -84,7 +84,7 @@ Response: `{ "ok": true, "code": "ok", "taskId": "t_1" }` and `status` is `done`
 
 `listTasks` is a read. Any valid token. Same `403 migration_pending` until `MIGRATION_DONE` is `"true"`. `idempotencyKey` is optional. Filters: `since`, `status`, `area`, `awaitingReview` (boolean), `source`, `dueFrom` / `dueTo` (ISO `YYYY-MM-DD`, inclusive; a task with an empty `due` is excluded when either bound is set), `limit` (default 50, max 100), `cursor`.
 
-`area` and `project` on each row are deprecated aliases of `areaId` and `projectId`. Prefer `areaId`, `projectId`, and `cityId`. `proposals` remains the count of pending proposals. `proposalsPending` is the same count. `proposalList` is `[{ id, kind, by, at, state }]` for every proposal (pending, accepted, or rejected) and does not include field values or notes.
+A non-admin token does not receive tasks with `visibility: "private"`, or tasks whose area, city, or project is private on the team state. `joe` / `yossi` receive them. `area` and `project` on each row are deprecated aliases of `areaId` and `projectId`. Prefer `areaId`, `projectId`, and `cityId`. `proposals` remains the count of pending proposals. `proposalsPending` is the same count. `proposalList` is `[{ id, kind, by, at, state }]` for every proposal (pending, accepted, or rejected) and does not include field values or notes.
 
 ```json
 { "token": "<bot>", "op": "listTasks", "source": "joe", "payload": { "status": "todo", "area": "area_office", "awaitingReview": true, "source": "michal-mail", "dueFrom": "2026-11-01", "dueTo": "2026-11-30", "limit": 50 } }

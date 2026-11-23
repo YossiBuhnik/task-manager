@@ -357,6 +357,42 @@
     };
   }
 
+  function hiddenRefIndex(state) {
+    var areas = {};
+    var cities = {};
+    var projects = {};
+    if (!state) return { areas: areas, cities: cities, projects: projects };
+    var i, c, p, j;
+    var areaList = state.areas || [];
+    for (i = 0; i < areaList.length; i++) {
+      if (areaList[i] && areaList[i].id && areaList[i].visibility === "private") areas[areaList[i].id] = 1;
+    }
+    var cityList = state.cities || [];
+    for (i = 0; i < cityList.length; i++) {
+      c = cityList[i];
+      if (!c || !c.id) continue;
+      if (c.visibility === "private" || areas[c.areaId]) cities[c.id] = 1;
+      var projs = c.projects || [];
+      for (j = 0; j < projs.length; j++) {
+        p = projs[j];
+        if (!p || !p.id) continue;
+        if (p.visibility === "private" || cities[c.id] || areas[c.areaId]) projects[p.id] = 1;
+      }
+    }
+    return { areas: areas, cities: cities, projects: projects };
+  }
+
+  function taskHiddenFrom(actor, doc, state) {
+    if (!doc || isAdminSource(actor && actor.source)) return false;
+    if (doc.visibility === "private") return true;
+    if (!state) return false;
+    var idx = hiddenRefIndex(state);
+    if (doc.areaId && idx.areas[doc.areaId]) return true;
+    if (doc.cityId && idx.cities[doc.cityId]) return true;
+    if (doc.projectId && idx.projects[doc.projectId]) return true;
+    return false;
+  }
+
   function dueInRange(due, query) {
     if (!query.dueFrom && !query.dueTo) return true;
     if (!due) return false;
@@ -365,13 +401,14 @@
     return true;
   }
 
-  function listTaskSummaries(docs, query) {
+  function listTaskSummaries(docs, query, actor, state) {
     query = query || {};
     var limit = query.limit == null ? 50 : Math.max(1, Math.min(100, Number(query.limit) || 50));
     var rows = [];
     for (var i = 0; i < docs.length; i++) {
       var d = docs[i];
       if (!d) continue;
+      if (taskHiddenFrom(actor, d, state)) continue;
       if (query.status && d.status !== query.status) continue;
       var area = d.areaId || d.area || "";
       if (query.area && area !== query.area) continue;
@@ -529,7 +566,8 @@
       try {
         if (checked.op === "listTasks") {
           var all = deps.listTasks ? deps.listTasks() : [];
-          listed = listTaskSummaries(all, checked.payload);
+          var teamForTasks = deps.getTeamState ? deps.getTeamState() : null;
+          listed = listTaskSummaries(all, checked.payload, actor, teamForTasks);
           result = { http: 200, body: { ok: true, code: "ok", tasks: listed.tasks, nextCursor: listed.nextCursor } };
         } else if (checked.op === "listRefs") {
           var state = deps.getTeamState ? deps.getTeamState() : { areas: [], cities: [] };
