@@ -17,7 +17,8 @@ Path: `teams/main/tasks/{id}`.
 | `priority` | yes | `high` \| `mid` \| `low` | |
 | `projectId`, `cityId`, `areaId` | yes | string | Existing ids (`p_` / `c_` / `a_`, or `area_office`, etc.). |
 | `due` | yes | ISO `YYYY-MM-DD` or `""` | Empty means no due date. |
-| `durationMin`, `durationMax` | yes | integer minutes | Always a range: `1 ≤ min ≤ max ≤ 720`. When equal, UI shows one number. |
+| `durationMin`, `durationMax` | yes | integer minutes | Always a range: `1 ≤ min ≤ max ≤ 14400` (30 days). When equal, UI shows one number. |
+| `durationUnit` | no | `min` \| `hour` \| `day` | Display preference only (the unit picked in the form). Stored duration stays integer minutes. A day = 8 work hours = 480 minutes [לאימות]. |
 | `source` | yes | see enum below | `""` = manual / unknown. |
 | `createdBy` | yes | string | Source key or email. |
 | `createdAt` | yes | ISO date or timestamp | |
@@ -60,8 +61,9 @@ New:
   - `bucket`: `overdue` | `today` | `soon` (due in 1–3 days) | `later` (4+ days) | `none` (no due date / invalid).
   - `score`: same formula as `todoScore`, pinned to `today` when that argument is passed.
   - `daysUntil`: day difference used for the bucket (`null` when `bucket` is `none`).
-- `TM.formatDuration(min, max)` or `TM.formatDuration(task)` — Hebrew with a unit. If `max < 60`, minutes (`"5–10 דק׳"`, `"30 דק׳"`). If both ends are multiples of 30, hours with at most one decimal (`"4–6 שע׳"`, `"1.5–2 שע׳"`, `"1 שע׳"`). Otherwise minutes (`"45–75 דק׳"`). Equal min/max shows one number. Accepts legacy `task.duration` when the range fields are absent. Empty string when the range is invalid.
-- `TM.isValidDuration(min, max)` — integers, `1 ≤ min ≤ max ≤ 720`.
+- `TM.formatDuration(min, max[, unit])` or `TM.formatDuration(task)` — Hebrew with a unit, at most one decimal. Stored values stay integer minutes. If `unit` is passed, or `task.durationUnit` is set, show in that unit (`"5–10 דק׳"`, `"4–6 שע׳"`, `"2–3 ימים"`, one day `"1 יום"`). If no unit, auto-pick: `max < 60` → דק׳; both ends multiples of 480 and `max ≥ 480` → ימים; both ends multiples of 30 and `max ≥ 60` → שע׳; otherwise דק׳. Equal min/max shows one number. Accepts legacy `task.duration` when the range fields are absent. Empty string when the range is invalid.
+- `TM.toMinutes(value, unit)` — `min` → value, `hour` → value × 60, `day` → value × 480 (8 work hours [לאימות]).
+- `TM.isValidDuration(min, max)` — integers, `1 ≤ min ≤ max ≤ 14400`.
 
 Store selectors (logic lives in `data.js` as pure helpers; `store.jsx` wraps them in PR1, not in PR0):
 
@@ -122,7 +124,7 @@ Branches: `ido/contract`, `ido/data-layer`, `ido/bot-writes`, `ido/migrate`, `cl
 4. Bot-created tasks enter the **«ממתין לסקירה»** queue (`awaitingReview: true`) and move to the board only after approval. **Only Yossi and Joe may approve a task out of the queue.** A bot may edit **its own** task while `awaitingReview` is still true (needed for Michal's live mail corrections). **Michal's mail-derived updates arrive live all day**, not only at end of day: the write point must accept **single-task writes at any time**, and they must be **idempotent**. Phone top-urgent shows **approved tasks only**.
 5. **Only Yossi and Joe** may mark done or edit a task inserted by another bot. The only human Google account is `yossib@tskeng-il.co.il` (Yossi); bots have no Google accounts, and Joe has no Google login. **Yossi** is enforced in Firestore rules by that email. **Joe** is a bridge token, and "Joe may approve / markDone / edit" is enforced in the bridge, not in rules. Service-account writes bypass rules and must go through the bridge (see §7).
 6. **Temporary compatibility** with the Drive folder `task-manager-updates` (`addTasks` / `markDone` / `setDue` + `source`). The queue is **not** the source of truth; the endpoint (and then `teams/main/tasks/{id}`) is.
-7. **Duration is always a range** `durationMin` / `durationMax`. When they are equal, display one number.
+7. **Duration is always a range** `durationMin` / `durationMax`, stored as integer minutes (`1 ≤ min ≤ max ≤ 14400`). Optional `durationUnit` (`min` | `hour` | `day`) is the unit picked in the form and is display-only. A day = 8 work hours = 480 minutes [לאימות]. When min and max are equal, display one number.
 8. App name: **מנהל המשימות**.
 9. UI follows the concept sketch, plus the desktop duration column and the phone home of the top 2–3 urgent tasks, in the same visual language.
 
