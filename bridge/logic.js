@@ -4,11 +4,13 @@
 (function (root) {
   "use strict";
 
-  var OPS = ["addTask", "updateTask", "markDone", "setDue", "approveTask", "proposeDone", "acceptProposal", "rejectProposal", "listTasks", "listRefs"];
+  var OPS = ["addTask", "updateTask", "markDone", "setDue", "approveTask", "proposeDone", "acceptProposal", "rejectProposal", "listTasks", "listRefs", "listCorrections"];
   var BOT_SOURCES = ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked", "calendar-agent"];
   var STATUSES = ["todo", "doing", "done"];
   var PRIORITIES = ["high", "mid", "low"];
-  var PROTECTED = { source: 1, createdBy: 1, owner: 1, visibility: 1 };
+  var PROTECTED = { source: 1, createdBy: 1, owner: 1, visibility: 1, corrections: 1 };
+  var CORRECTION_KINDS = { date: 1, owner: 1, wording: 1, scope: 1, duplicate: 1, other: 1 };
+  var CORRECTIONS_CAP = 20;
   var DEFAULT_RATE_LIMIT = 60;
   var DEFAULT_RATE_WINDOW_MS = 60000;
   var IDEMPOTENCY_MAX_LEN = 200;
@@ -73,7 +75,7 @@
     if (!body || typeof body !== "object") return { error: httpError(400, "invalid", "body") };
     if (OPS.indexOf(body.op) === -1) return { error: httpError(400, "invalid", "op") };
     var key = body.idempotencyKey;
-    var readOp = body.op === "listTasks" || body.op === "listRefs";
+    var readOp = body.op === "listTasks" || body.op === "listRefs" || body.op === "listCorrections";
     if (readOp) {
       if (key != null && key !== "" && (typeof key !== "string" || !key.trim() || key.length > IDEMPOTENCY_MAX_LEN)) {
         return { error: httpError(400, "invalid", "idempotencyKey") };
@@ -159,7 +161,7 @@
   }
 
   function authorize(actor, op, existing) {
-    if (op === "addTask" || op === "listTasks" || op === "listRefs") return { ok: true };
+    if (op === "addTask" || op === "listTasks" || op === "listRefs" || op === "listCorrections") return { ok: true };
     if (!existing) return { error: httpError(404, "not_found") };
     if (op === "acceptProposal" || op === "rejectProposal" || op === "markDone" || op === "approveTask") {
       if (!isAdminSource(actor.source)) return { error: httpError(403, "forbidden", "admin only") };
@@ -354,6 +356,7 @@
       proposals: pending,
       proposalsPending: pending,
       proposalList: proposalListOf(doc),
+      corrections: doc.corrections || [],
     };
   }
 
@@ -478,6 +481,135 @@
     return "prop_" + fnv1aHex(String(source) + ":" + String(key));
   }
 
+  function isBotCreated(doc) {
+    if (!doc) return false;
+    if (BOT_SOURCES.indexOf(doc.source) !== -1) return true;
+    return BOT_SOURCES.indexOf(doc.createdBy) !== -1;
+  }
+
+  function parseCorrectionReason(raw, required) {
+    if (raw == null || raw === "") {
+      if (required) return { error: httpError(400, "invalid", "correctionReason required") };
+      return { value: null };
+    }
+    if (typeof raw !== "object" || Array.isArray(raw)) return { error: httpError(400, "invalid", "correctionReason") };
+    if (!CORRECTION_KINDS[raw.kind]) return { error: httpError(400, "invalid", "kind") };
+    if (typeof raw.reason !== "string") return { error: httpError(400, "invalid", "reason") };
+    var reason = raw.reason.trim();
+    if (!reason || reason.length > 500) return { error: httpError(400, "invalid", "reason") };
+    return { value: { kind: raw.kind, reason: reason } };
+  }
+
+  function changedFields(op, payload) {
+    if (op === "setDue") return { due: payload.due || "" };
+    var out = {};
+    for (var k in payload) {
+      if (!Object.prototype.hasOwnProperty.call(payload, k)) continue;
+      if (k === "id" || k === "taskId" || k === "correctionReason") continue;
+      out[k] = payload[k];
+    }
+    return out;
+  }
+
+  function snapshot(existing, fields) {
+    var before = {};
+    var after = {};
+    for (var k in fields) {
+      if (!Object.prototype.hasOwnProperty.call(fields, k)) continue;
+      before[k] = existing[k];
+      after[k] = fields[k];
+    }
+    return { before: before, after: after };
+  }
+
+  function appendCorrection(doc, entry) {
+    var list = (doc.corrections || []).slice();
+    list.push(entry);
+    if (list.length > CORRECTIONS_CAP) list = list.slice(list.length - CORRECTIONS_CAP);
+    doc.corrections = list;
+  }
+
+  function applyDirect(existing, op, payload, actor, now) {
+    var fields;
+    if (op === "markDone") fields = { status: "done" };
+    else if (op === "setDue") fields = { due: payload.due || "" };
+    else if (op === "approveTask") {
+      var approved = applyUpdateFields(existing, {});
+      approved.awaitingReview = false;
+      approved.version = (existing.version || 1) + 1;
+      return { doc: approved };
+    } else fields = changedFields(op, payload);
+
+    var record = null;
+    if (op === "updateTask" || op === "setDue") {
+      var required = isAdminSource(actor.source) && isBotCreated(existing) && existing.awaitingReview === true;
+      var parsed = parseCorrectionReason(payload.correctionReason, required);
+      if (parsed.error) return parsed;
+      if (parsed.value && isAdminSource(actor.source)) {
+        var shot = snapshot(existing, fields);
+        record = {
+          at: new Date(now).toISOString(),
+          by: actor.source,
+          op: op,
+          fields: shot.after,
+          before: shot.before,
+          after: shot.after,
+          reason: parsed.value.reason,
+          kind: parsed.value.kind,
+        };
+      }
+    }
+    var doc = applyUpdateFields(existing, fields);
+    if (record) appendCorrection(doc, record);
+    return { doc: doc };
+  }
+
+  function listCorrections(docs, query, actor, state) {
+    query = query || {};
+    var source = query.source;
+    if (!source || typeof source !== "string" || BOT_SOURCES.indexOf(source) === -1) {
+      return { error: httpError(400, "invalid", "source") };
+    }
+    if (!isAdminSource(actor.source) && source !== actor.source) {
+      return { error: httpError(403, "forbidden", "source") };
+    }
+    var limit = query.limit == null ? 50 : Math.max(1, Math.min(200, Number(query.limit) || 50));
+    var rows = [];
+    for (var i = 0; i < docs.length; i++) {
+      var d = docs[i];
+      if (!d || d.source !== source) continue;
+      if (taskHiddenFrom(actor, d, state)) continue;
+      var list = d.corrections || [];
+      for (var j = 0; j < list.length; j++) {
+        var c = list[j];
+        if (!c) continue;
+        if (query.since && String(c.at || "") < String(query.since)) continue;
+        var key = String(c.at || "") + "\t" + String(d.id) + "\t" + j;
+        rows.push({
+          key: key,
+          entry: {
+            taskId: d.id,
+            at: c.at,
+            by: c.by,
+            op: c.op,
+            fields: c.fields,
+            before: c.before,
+            after: c.after,
+            reason: c.reason,
+            kind: c.kind,
+          },
+        });
+      }
+    }
+    rows.sort(function (a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; });
+    if (query.cursor) rows = rows.filter(function (r) { return r.key > String(query.cursor); });
+    var page = rows.slice(0, limit);
+    return {
+      corrections: page.map(function (r) { return r.entry; }),
+      nextCursor: rows.length > limit ? page[page.length - 1].key : null,
+    };
+  }
+
   function editFieldsOf(op, payload) {
     if (op === "setDue") return { due: payload.due || "" };
     var out = {};
@@ -557,7 +689,7 @@
 
       var existing = null;
       var existingMeta = null;
-      if (checked.op !== "addTask" && checked.op !== "listTasks" && checked.op !== "listRefs") {
+      if (checked.op !== "addTask" && checked.op !== "listTasks" && checked.op !== "listRefs" && checked.op !== "listCorrections") {
         existingMeta = deps.getTask ? deps.getTask(checked.payload.id) : null;
         existing = existingMeta && existingMeta.doc;
         if (!existing) return httpError(404, "not_found");
@@ -577,6 +709,12 @@
           var state = deps.getTeamState ? deps.getTeamState() : { areas: [], cities: [] };
           var refs = publicRefs(state, actor);
           result = { http: 200, body: { ok: true, code: "ok", areas: refs.areas, cities: refs.cities, projects: refs.projects } };
+        } else if (checked.op === "listCorrections") {
+          var corrDocs = deps.listTasks ? deps.listTasks() : [];
+          var corrState = deps.getTeamState ? deps.getTeamState() : null;
+          var corr = listCorrections(corrDocs, checked.payload, actor, corrState);
+          if (corr.error) return corr.error;
+          result = { http: 200, body: { ok: true, code: "ok", corrections: corr.corrections, nextCursor: corr.nextCursor } };
         } else if (checked.op === "addTask") {
           taskId = (checked.payload.id && /^t_/.test(checked.payload.id)) ? checked.payload.id : (deps.mintId || mintTaskId)();
           if (deps.getTask && deps.getTask(taskId)) return httpError(409, "conflict", "id exists");
@@ -634,13 +772,9 @@
           result = httpOk(taskId);
         } else {
           taskId = existing.id;
-          if (checked.op === "markDone") doc = applyUpdateFields(existing, { status: "done" });
-          else if (checked.op === "setDue") doc = applyUpdateFields(existing, { due: checked.payload.due || "" });
-          else if (checked.op === "approveTask") {
-            doc = applyUpdateFields(existing, {});
-            doc.awaitingReview = false;
-            doc.version = (existing.version || 1) + 1;
-          } else doc = applyUpdateFields(existing, checked.payload);
+          var applied = applyDirect(existing, checked.op, checked.payload, actor, now);
+          if (applied.error) return applied.error;
+          doc = applied.doc;
           deps.commitTask({
             type: "update",
             id: taskId,

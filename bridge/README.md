@@ -82,6 +82,8 @@ Until then there is not a single write path.
 
 ## עדכון הגשר אחרי מיזוג - מדריך ליוסי
 
+אחרי מיזוג של שינוי ב-Logic (כולל סיבות תיקון) חובה לפרוס מחדש. כתובת ה-`/exec` לא משתנה.
+
 1. ב-GitHub פותחים את הקובץ `bridge/logic.js` ומעתיקים את כל התוכן.
 2. ב-Apps Script פותחים את הקובץ Logic, מחליפים את כל התוכן, ולוחצים Save.
 3. Deploy > Manage deployments > עיפרון (Edit) > Version: New version > Deploy.

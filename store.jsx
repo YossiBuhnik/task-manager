@@ -270,6 +270,8 @@ function useStore(cloud) {
       };
     }),
     updateTask: (cityId, projectId, taskId, fields) => update(d => {
+      // TODO: an edit of a pending bot task (awaitingReview) must go through the
+      // bridge with correctionReason. This direct write is unchanged for now.
       const current = findTaskInData(d, taskId);
       if (!current || !guardEdit(current)) return d;
       const rolled = window.TM.rollTask({ ...current, ...fields });
