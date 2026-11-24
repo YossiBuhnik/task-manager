@@ -359,6 +359,21 @@ async function main() {
   is("local allows bulk replace", TM.canBulkReplaceData(false) === true);
   is("cloud rejects bulk replace", TM.canBulkReplaceData(true) === false);
 
+  console.log("quick done toggle");
+  eq("todo becomes done", TM.quickDoneStatus("todo"), "done");
+  eq("doing becomes done", TM.quickDoneStatus("doing"), "done");
+  eq("done becomes todo", TM.quickDoneStatus("done"), "todo");
+  const views = fs.readFileSync(path.join(__dirname, "..", "views.jsx"), "utf8");
+  const cardFn = views.slice(views.indexOf("function TaskCard"), views.indexOf("function StatTile"));
+  const toggleFn = views.slice(views.indexOf("function DoneToggle"), views.indexOf("function TaskCard"));
+  const tableFn = views.slice(views.indexOf("function TaskTable"), views.indexOf("function useNarrow"));
+  const boardFn = views.slice(views.indexOf("function Board"), views.indexOf("function RowList"));
+  is("card uses the toggle", cardFn.indexOf("DoneToggle") !== -1);
+  is("toggle stops the click", toggleFn.indexOf("e.stopPropagation()") !== -1);
+  is("table uses the toggle", tableFn.indexOf("DoneToggle") !== -1);
+  is("board cards and table share the toggle", boardFn.indexOf("onToggleDone={onToggleDone}") !== -1 && views.indexOf("onToggleDone={toggleDone}") !== -1);
+  is("toggle uses updateTask", views.slice(views.indexOf("function quickDone"), views.indexOf("function DoneToggle")).indexOf("actions.updateTask") !== -1);
+
   console.log("client guards");
   {
     const bot = sampleTask({ source: "michal-mail", createdBy: "michal-mail", awaitingReview: true });

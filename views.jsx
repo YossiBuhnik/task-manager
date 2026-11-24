@@ -176,7 +176,32 @@ function DueText({ task, urg }) {
   return <span className={"due " + cls}>{window.Icon.cal}{txt}{task.time ? " · " + task.time : ""}</span>;
 }
 
-function TaskCard({ row, onOpen, compact, showDuration }) {
+function mayQuickDone(task, email) {
+  return window.TM.canEditTask(task, email || "", null);
+}
+
+function quickDone(row, anchor, actions) {
+  const next = window.TM.quickDoneStatus(row.task.status);
+  if (next === "done") window.celebrateDone(anchor, row.task, row.project);
+  else if (window.toastInfo) window.toastInfo("חזרה לפתוח", row.task.title);
+  actions.updateTask(row.city.id, row.project.id, row.task.id, { status: next });
+}
+
+function DoneToggle({ task, onToggle }) {
+  const done = task.status === "done";
+  return (
+    <button type="button"
+      className={"task-check tcard-check" + (done ? " is-done" : "")}
+      aria-label={done ? "החזר לפתוח" : "בוצע"}
+      title={done ? "החזר לפתוח" : "בוצע"}
+      onClick={(e) => { e.stopPropagation(); onToggle(e.currentTarget); }}
+      onKeyDown={(e) => e.stopPropagation()}>
+      {done && window.Icon.check}
+    </button>
+  );
+}
+
+function TaskCard({ row, onOpen, compact, showDuration, onToggleDone, userEmail }) {
   const { task, area, city, project, urg } = row;
   const dup = !!(task.dupGroup || task.dupLabel);
   const cls = ["tcard",
@@ -185,9 +210,10 @@ function TaskCard({ row, onOpen, compact, showDuration }) {
     task.status === "done" ? "is-done" : "",
     "tone-" + window.areaTone(area.id)].filter(Boolean).join(" ");
   const meta = [project.name, city.name].filter(Boolean);
+  const showDone = onToggleDone && mayQuickDone(task, userEmail);
   return (
     <div className={cls} role="button" tabIndex={0} onClick={() => onOpen(row)}
-      onKeyDown={(e) => { if (e.key === "Enter") onOpen(row); }}>
+      onKeyDown={(e) => { if (e.key === "Enter" && e.target === e.currentTarget) onOpen(row); }}>
       {(task.source || dup || window.TM.pendingProposals(task).length > 0) && (
         <div className="tcard-top">
           <window.SourceChip source={task.source} />
@@ -195,7 +221,10 @@ function TaskCard({ row, onOpen, compact, showDuration }) {
           {window.TM.pendingProposals(task).length > 0 && <span className="chip chip-proposal">הצעה</span>}
         </div>
       )}
-      <div className="tcard-title">{task.title}</div>
+      <div className="tcard-title">
+        {showDone && <DoneToggle task={task} onToggle={(el) => onToggleDone(row, el)} />}
+        <span>{task.title}</span>
+      </div>
       {!compact && (
         <div className="tcard-chips">
           <window.AreaChip area={area} />
@@ -353,7 +382,7 @@ function Inbox({ rows, allRows, actions, onOpen }) {
 const byUrgency = (a, b) => b.urg.score - a.urg.score
   || (a.task.due ? 0 : 1) - (b.task.due ? 0 : 1);
 
-function Board({ rows, tree, groupBy, onGroupBy, onOpen, filter, onClearFilter, extraControls, showGroup = true, children }) {
+function Board({ rows, tree, groupBy, onGroupBy, onOpen, onToggleDone, userEmail, filter, onClearFilter, extraControls, showGroup = true, children }) {
   const columns = vUseMemo(() => {
     if (groupBy === "status") {
       return window.TM.STATUSES.map(s => {
@@ -392,7 +421,7 @@ function Board({ rows, tree, groupBy, onGroupBy, onOpen, filter, onClearFilter, 
               </div>
               <div className="board-col-body">
                 {col.items.length === 0 && <div className="panel-empty">אין משימות</div>}
-                {col.items.map(r => <TaskCard key={r.task.id} row={r} onOpen={onOpen} showDuration />)}
+                {col.items.map(r => <TaskCard key={r.task.id} row={r} onOpen={onOpen} onToggleDone={onToggleDone} userEmail={userEmail} showDuration />)}
                 {col.more > 0 && <div className="col-more">ועוד {col.more} שהושלמו</div>}
               </div>
             </div>
@@ -431,7 +460,7 @@ function RowList({ title, rows, empty, onOpen, render }) {
 }
 
 // ── Desktop: consolidated table with a duration-range column ──
-function TaskTable({ rows, onOpen }) {
+function TaskTable({ rows, onOpen, onToggleDone, userEmail }) {
   const sorted = rows.filter(isOpenRow).slice().sort(byUrgency);
   if (!sorted.length) return <div className="panel-empty">אין משימות</div>;
   return (
@@ -449,8 +478,12 @@ function TaskTable({ rows, onOpen }) {
             const cls = [urg.bucket === "overdue" ? "is-overdue" : "", (task.dupGroup || task.dupLabel) ? "is-dup" : ""].join(" ");
             return (
               <tr key={task.id} className={cls} tabIndex={0} onClick={() => onOpen(r)}
-                onKeyDown={(e) => { if (e.key === "Enter") onOpen(r); }}>
-                <td className="tt-title">{task.title} <window.DupChip task={task} /></td>
+                onKeyDown={(e) => { if (e.key === "Enter" && e.target === e.currentTarget) onOpen(r); }}>
+                <td className="tt-title">
+                  {onToggleDone && mayQuickDone(task, userEmail) &&
+                    <DoneToggle task={task} onToggle={(el) => onToggleDone(r, el)} />}
+                  <span>{task.title}</span> <window.DupChip task={task} />
+                </td>
                 <td>{task.source ? <window.SourceChip source={task.source} /> : <span className="muted">—</span>}</td>
                 <td><window.AreaChip area={r.area} /></td>
                 <td className="tt-sub">{[r.project.name, r.city.name].filter(Boolean).join(" · ")}</td>
@@ -563,6 +596,7 @@ function TaskBoard({ data, actions, search, userEmail, userName }) {
 
   const toggle = (k) => setTile(t => t === k ? null : k);
   const openRow = (r) => setEditing(r);
+  const toggleDone = (r, anchor) => quickDone(r, anchor, actions);
   const scrollInbox = () => {
     const el = document.getElementById("inbox");
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -615,13 +649,14 @@ function TaskBoard({ data, actions, search, userEmail, userName }) {
         <div className="tb-main">
           <Inbox rows={inbox} allRows={rows} actions={actions} onOpen={openRow} />
           <Board rows={boardShown} tree={tree} groupBy={groupBy} onGroupBy={setGroup} onOpen={openRow}
+            onToggleDone={toggleDone} userEmail={userEmail}
             filter={tile ? TILE_FILTERS[tile] : null} onClearFilter={() => setTile(null)}
             showGroup={!tableOn}
             extraControls={!narrow && (
               <Segmented label="תצוגה" value={view} onChange={setBoardView}
                 options={[{ key: "cards", label: "כרטיסים" }, { key: "table", label: "טבלה" }]} />
             )}>
-            {tableOn && <TaskTable rows={boardShown} onOpen={openRow} />}
+            {tableOn && <TaskTable rows={boardShown} onOpen={openRow} onToggleDone={toggleDone} userEmail={userEmail} />}
           </Board>
         </div>
         <aside className="tb-aside">

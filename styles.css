@@ -1959,7 +1959,15 @@ html, body { background: var(--bg); }
 .tcard:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tcard::before { content: ""; position: absolute; inset-inline-start: -1px; top: 10px; bottom: 10px; width: 3px; border-radius: 3px; background: var(--t, var(--line-2)); }
 .tcard-top, .tcard-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.tcard-title { font-weight: 600; font-size: 14px; line-height: 1.35; color: var(--ink); }
+.tcard-title { display: flex; align-items: flex-start; gap: 8px; font-weight: 600; font-size: 14px; line-height: 1.35; color: var(--ink); }
+.tcard-title > span { min-width: 0; }
+.tcard-check {
+  width: 32px; height: 32px; border-radius: 999px; margin-top: -2px;
+}
+.tcard-check .ico { width: 16px; height: 16px; }
+@media (max-width: 640px) {
+  .tcard-check { width: 40px; height: 40px; }
+}
 .tcard-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; font-size: 12px; color: var(--ink-3); }
 .tcard-meta > * + *::before { content: "·"; margin-inline-end: 6px; color: var(--line-2); }
 .tcard.is-overdue { background: var(--danger-bg); border-color: var(--danger-line); }
@@ -2177,7 +2185,8 @@ html[data-theme="dark"] .todo-proj, html[data-theme="dark"] .area-pill { backgro
 .ttable tr.is-overdue { background: var(--danger-bg); }
 .ttable tr.is-overdue td:first-child { box-shadow: inset -3px 0 0 var(--danger); }
 .ttable tr.is-dup td:first-child { box-shadow: inset -3px 0 0 var(--danger-line); }
-.ttable .tt-title { font-weight: 600; min-width: 200px; }
+.ttable .tt-title { display: flex; align-items: center; gap: 8px; font-weight: 600; min-width: 200px; }
+.ttable .tt-title > span { min-width: 0; }
 .ttable .tt-sub { color: var(--ink-3); font-size: 12px; }
 .ttable .tt-dur { white-space: nowrap; font-weight: 600; color: var(--ink-2); }
 .ttable .muted { color: var(--ink-3); }
