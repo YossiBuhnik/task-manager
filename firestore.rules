@@ -125,7 +125,14 @@ service cloud.firestore {
       allow read, write: if isTeamMember();
 
       match /tasks/{taskId} {
-        allow read: if isTeamMember() && canReadItem(resource.data);
+        // get checks the document. list must not: the app listens to the
+        // whole collection with no where/orderBy (cloud.jsx). Rules are not
+        // filters, so a read rule that touches visibility or owner rejects
+        // that listen. Migrated docs often omit those fields.
+        // List is Yossi's email only (isTaskAdmin). A direct get of someone
+        // else's private task still fails canReadItem.
+        allow get: if isTeamMember() && canReadItem(resource.data);
+        allow list: if isTaskAdmin();
 
         allow create: if isTeamMember()
           && validTask(request.resource.data)
