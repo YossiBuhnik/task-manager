@@ -111,6 +111,14 @@ service cloud.firestore {
         && after.id == before.id;
     }
 
+    // corrections is append-only via the bridge (SA bypasses rules).
+    // The client, including Yossi, cannot create or rewrite the array.
+    // Yossi can still edit an awaitingReview bot task: canEditTask allows
+    // isTaskAdmin, and a normal edit keeps corrections as already stored.
+    function correctionsUnchanged() {
+      return request.resource.data.get("corrections", []) == resource.data.get("corrections", []);
+    }
+
     // Legacy team document (the state blob). Only the signed-in human
     // account (Yossi) may read and write. Subcollections are not covered
     // by this match. Bot traffic must not use this path.
@@ -125,6 +133,7 @@ service cloud.firestore {
           && canReadItem(request.resource.data)
           && clientMayWriteSource(request.resource.data)
           && request.resource.data.awaitingReview == false
+          && request.resource.data.get("corrections", []).size() == 0
           && (!isPrivate(request.resource.data) || isOwner(request.resource.data));
 
         // Non-admins cannot change status or other task fields, and cannot
@@ -134,6 +143,7 @@ service cloud.firestore {
           && canEditTask(resource.data)
           && validTask(request.resource.data)
           && visibilityUnchanged()
+          && correctionsUnchanged()
           && (isTaskAdmin() || (
             request.resource.data.status == resource.data.status
             && request.resource.data.due == resource.data.due

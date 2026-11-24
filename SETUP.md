@@ -195,6 +195,8 @@ After a successful migration and Yossi's approval:
 
 Bots write through the Apps Script web app in `bridge/` (see `bridge/README.md` and `BOT-WRITE-SPEC.md`). Do not deploy it until Yossi approves. Until Script Property `MIGRATION_DONE` is `"true"`, the bridge refuses writes. Tokens and the service-account JSON live only in Script Properties, never in this repo.
 
+The one-time copy from the state blob into `teams/main/tasks/{id}` runs inside Apps Script: `migrationDryRun`, then freeze writers, then `migrationRun`. See «הרצת ההסבה - מדריך ליוסי» in `bridge/README.md`. That run does not set `MIGRATION_DONE`.
+
 
 Private-area enforcement and "only Yossi may edit a bot-inserted task" in the client match the draft rules. After the rules are published, private areas are also enforced on the server by `owner`. Until they are published, the soft-privacy caveat in the visibility section still applies to the live project.
 

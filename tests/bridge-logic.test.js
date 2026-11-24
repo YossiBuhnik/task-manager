@@ -572,6 +572,30 @@ const listed = corr.handle(req({ op: "listTasks", idempotencyKey: "michal:lc-tas
 const listedBot = listed.body.tasks.filter((t) => t.id === "t_bot")[0];
 eq("listTasks returns corrections", listedBot.corrections.length, 2);
 
+console.log("migration plan");
+const secretTitle = "SECRET_TITLE_XYZ";
+const secretNote = "SECRET_NOTE_XYZ";
+const mig = TMBridge.planMigration({
+  cities: [{ id: "c", areaId: "area_office", projects: [{ id: "p", tasks: [
+    { id: "t_keep", title: secretTitle, notes: secretNote, duration: 60 },
+    { title: secretTitle },
+    { id: "t_keep", title: "dup" },
+  ] }] }],
+}, "2026-11-23");
+eq("migration documents", mig.counts.documents, 1);
+eq("migration problems", mig.problems, [{ code: "missing-id" }, { code: "duplicate-id", id: "t_keep" }]);
+const migLog = TMBridge.migrationLogLines(mig).join("\n");
+is("log has problem code", migLog.indexOf("problem missing-id") !== -1 && migLog.indexOf("problem duplicate-id id=t_keep") !== -1);
+is("log has no title", migLog.indexOf(secretTitle) === -1);
+is("log has no note", migLog.indexOf(secretNote) === -1);
+eq("refuse done", TMBridge.evaluateMigrationRun({ migrationDone: "true", dryRun: { hash: "a" }, currentHash: "a", docs: [{ id: "t" }] }).error, "migration_done");
+eq("refuse missing dry run", TMBridge.evaluateMigrationRun({ dryRun: null, currentHash: "a", docs: [{ id: "t" }] }).error, "missing_dry_run");
+eq("refuse hash mismatch", TMBridge.evaluateMigrationRun({ dryRun: { hash: "a" }, currentHash: "b", docs: [{ id: "t" }] }).error, "hash_mismatch");
+const skippedRun = TMBridge.evaluateMigrationRun({
+  dryRun: { hash: "h" }, currentHash: "h", existingIds: ["t_keep"], docs: mig.docs.concat([{ id: "t_new", title: secretTitle }]),
+});
+eq("create-only skip", [skippedRun.ok, skippedRun.written, skippedRun.skipped, skippedRun.toWrite.map((d) => d.id)], [true, 1, 1, ["t_new"]]);
+
 console.log("");
 console.log(passed + " passed, " + failed + " failed");
 process.exit(failed ? 1 : 0);
