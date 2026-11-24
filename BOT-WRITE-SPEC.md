@@ -248,11 +248,11 @@ A `yossi` token, if added later, has the same authorization as the Joe token on 
 
 `MIGRATION_DONE` stays unset, and the migration is not closed, until every item below is true. Until then there is not a single write path.
 
-- (a) The `applyUpdates` / `updates-*.json` path is retired or frozen. Retiring it is still pending Yossi's decision (see the section below).
+- (a) The `applyUpdates` / `updates-*.json` path is **frozen, not deleted** (Yossi, 24/11/2026). The switch is `APPLY_FROZEN` in Joe's `tasks_app.py` (outside this repo). It is turned on at migration step 6 (freeze writers) and stays on. Files stay in place as a backup for 2 weeks from the migration date. Deletion only with Yossi's explicit approval then.
 - (b) The Drive queue is paused, or it is drained only through this bridge.
 - (c) `calendar-agent` is converted onto this bridge with its own token. Its direct service-account writes and its `Code.gs` triggers are removed.
 - (d) `tasks_app.py` is converted onto this bridge.
 
-## Decision for Yossi at review: retire updates-*.json / applyUpdates
+## Decision: freeze updates-*.json / applyUpdates
 
-**Pending Yossi.** Recommendation: after the migration, retire the `updates-*.json` / `applyUpdates` path so there is a single write path. Keep the Drive queue only as a fallback, and drain that fallback through the bridge itself.
+**Decided (Yossi, 24/11/2026): freeze, do not delete.** The switch is `APPLY_FROZEN` in Joe's `tasks_app.py` (outside this repo). It is turned on at migration step 6 (freeze writers) and stays on. Until then `applyUpdates` keeps running. Files stay in place as a backup for 2 weeks from the migration date. Deletion only with Yossi's explicit approval then. The Drive queue remains a fallback drained through the bridge.

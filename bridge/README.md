@@ -73,9 +73,17 @@ Today it writes **directly to Firestore** with a service account. Its Apps Scrip
 
 Migration is not closed, and `MIGRATION_DONE` stays unset, until all of these are true:
 
-- (a) The `applyUpdates` / `updates-*.json` path is retired or frozen. That retirement is still pending Yossi's decision.
+- (a) The `applyUpdates` / `updates-*.json` path is frozen, not deleted (Yossi, 24/11/2026). The switch is `APPLY_FROZEN` in Joe's `tasks_app.py` (outside this repo). It is turned on at migration step 6 (freeze writers) and stays on. Files stay in place as a backup for 2 weeks from the migration date. Deletion only with Yossi's explicit approval then.
 - (b) The Drive queue is paused, or it is drained only through this bridge.
 - (c) `calendar-agent` is converted onto this bridge with its own token. Its direct service-account writes and its `Code.gs` triggers are removed.
 - (d) `tasks_app.py` is converted onto this bridge.
 
 Until then there is not a single write path.
+
+## עדכון הגשר אחרי מיזוג - מדריך ליוסי
+
+1. ב-GitHub פותחים את הקובץ `bridge/logic.js` ומעתיקים את כל התוכן.
+2. ב-Apps Script פותחים את הקובץ Logic, מחליפים את כל התוכן, ולוחצים Save.
+3. Deploy > Manage deployments > עיפרון (Edit) > Version: New version > Deploy.
+4. כתובת ה-`/exec` נשארת אותו דבר. אין מה לשנות אצל הבוטים.
+5. בדיקה: פותחים את הכתובת בדפדפן. עדיין אמור להופיע `use POST`.
