@@ -85,9 +85,7 @@
       return { error: httpError(400, "invalid", "idempotencyKey") };
     }
     var source = body.source != null && body.source !== "" ? body.source : actor.source;
-    if (BOT_SOURCES.indexOf(source) === -1 && !isAdminSource(source)) {
-      return { error: httpError(400, "invalid", "source") };
-    }
+    if (BOT_SOURCES.indexOf(source) === -1) return { error: httpError(400, "invalid", "source") };
     if (!isAdminSource(actor.source) && source !== actor.source) {
       return { error: httpError(403, "forbidden", "source mismatch") };
     }
@@ -569,7 +567,9 @@
   function listCorrections(docs, query, actor, state) {
     query = query || {};
     var source = query.source;
-    if (!source || typeof source !== "string") return { error: httpError(400, "invalid", "source") };
+    if (!source || typeof source !== "string" || BOT_SOURCES.indexOf(source) === -1) {
+      return { error: httpError(400, "invalid", "source") };
+    }
     if (!isAdminSource(actor.source) && source !== actor.source) {
       return { error: httpError(403, "forbidden", "source") };
     }

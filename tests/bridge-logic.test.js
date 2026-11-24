@@ -491,8 +491,16 @@ eq("protected corrections on update", corr.handle(req({
   token: "tok-joe", source: "joe", op: "updateTask", idempotencyKey: "joe:corr-field",
   payload: { id: "t_bot", title: "X", corrections: [] },
 })).body.error, "protected field");
+eq("addTask source yossi invalid", corr.handle(req({
+  token: "tok-yossi", source: "yossi", op: "addTask", idempotencyKey: "yossi:add",
+  payload: { title: "Nope" },
+})).body.error, "source");
+eq("updateTask source yossi invalid", corr.handle(req({
+  token: "tok-yossi", source: "yossi", op: "updateTask", idempotencyKey: "yossi:upd",
+  payload: { id: "t_bot", title: "Nope", correctionReason: { kind: "wording", reason: "no" } },
+})).body.error, "source");
 const fixed = corr.handle(req({
-  token: "tok-yossi", source: "yossi", op: "updateTask", idempotencyKey: "yossi:fix1",
+  token: "tok-yossi", source: "michal-mail", op: "updateTask", idempotencyKey: "yossi:fix1",
   payload: { taskId: "t_bot", title: "  Better title", correctionReason: { kind: "wording", reason: "  clearer  " } },
 }));
 is("admin update with reason ok", fixed.body.ok);
@@ -556,6 +564,10 @@ const joeList = corr.handle(req({
   payload: { source: "ron-site", since: "2026-01-01", limit: 10 },
 }));
 eq("admin lists other source", joeList.body.corrections.map((c) => c.taskId), ["t_ron_c"]);
+eq("listCorrections source yossi invalid", corr.handle(req({
+  token: "tok-joe", source: "joe", op: "listCorrections", idempotencyKey: "joe:lc-yossi",
+  payload: { source: "yossi" },
+})).body.error, "source");
 const listed = corr.handle(req({ op: "listTasks", idempotencyKey: "michal:lc-tasks", payload: { limit: 50 } }));
 const listedBot = listed.body.tasks.filter((t) => t.id === "t_bot")[0];
 eq("listTasks returns corrections", listedBot.corrections.length, 2);
