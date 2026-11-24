@@ -432,7 +432,7 @@ function Board({ rows, tree, groupBy, onGroupBy, onOpen, onToggleDone, userEmail
   );
 }
 
-function RowList({ title, rows, empty, onOpen, render }) {
+function RowList({ title, rows, empty, onOpen, onToggleDone, userEmail, render }) {
   return (
     <section className="panel rowlist">
       <div className="panel-head">
@@ -443,14 +443,19 @@ function RowList({ title, rows, empty, onOpen, render }) {
         <ul>
           {rows.map(r => (
             <li key={r.task.id}>
-              <button type="button" className={"rl-row tone-" + window.areaTone(r.area.id)} onClick={() => onOpen(r)}>
+              <div role="button" tabIndex={0}
+                className={"rl-row tone-" + window.areaTone(r.area.id)}
+                onClick={() => onOpen(r)}
+                onKeyDown={(e) => { if (e.key === "Enter" && e.target === e.currentTarget) onOpen(r); }}>
+                {onToggleDone && mayQuickDone(r.task, userEmail) &&
+                  <DoneToggle task={r.task} onToggle={(el) => onToggleDone(r, el)} />}
                 <span className="rl-bar" />
                 <span className="rl-main">
                   <span className="rl-title">{r.task.title}</span>
                   <span className="rl-sub">{[r.project.name, r.city.name].filter(Boolean).join(" · ")}</span>
                 </span>
                 <span className="rl-side">{render(r)}</span>
-              </button>
+              </div>
             </li>
           ))}
         </ul>
@@ -661,7 +666,8 @@ function TaskBoard({ data, actions, search, userEmail, userName }) {
         </div>
         <aside className="tb-aside">
           <RowList title="תזכורות קרובות" rows={reminders.slice(0, 8)} empty="אין תזכורות בשבוע הקרוב"
-            onOpen={openRow} render={(r) => <DueText task={r.task} urg={r.urg} />} />
+            onOpen={openRow} onToggleDone={toggleDone} userEmail={userEmail}
+            render={(r) => <DueText task={r.task} urg={r.urg} />} />
           <RowList title="ממתין לאחרים" rows={waiting.slice(0, 8)} empty="אין משימות שממתינות לאחרים"
             onOpen={openRow} render={(r) => <span className="who">{r.task.assignee}</span>} />
         </aside>

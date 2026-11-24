@@ -814,6 +814,28 @@
     };
   };
 
+  // Firestore rejects undefined. Drop those keys and keep null. A missing
+  // owner/visibility stays missing, so rules .get() defaults do not see a change.
+  const omitUndefined = (value) => {
+    if (Array.isArray(value)) {
+      const out = [];
+      for (let i = 0; i < value.length; i++) {
+        if (value[i] === undefined) continue;
+        out.push(omitUndefined(value[i]));
+      }
+      return out;
+    }
+    if (!value || typeof value !== "object") return value;
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) return value;
+    const out = {};
+    for (const k in value) {
+      if (!Object.prototype.hasOwnProperty.call(value, k) || value[k] === undefined) continue;
+      out[k] = omitUndefined(value[k]);
+    }
+    return out;
+  };
+
   // Pure transaction body for a task document. existing is the current doc or null.
   // op: { type: "create"|"update"|"delete", task?, fields?, expectedVersion? }
   const applyTaskMutation = (existing, op) => {
@@ -822,7 +844,7 @@
       if (existing) return { ok: false, error: { code: "conflict", message: "exists" } };
       const task = op.task || {};
       if (!task.id) return { ok: false, error: { code: "invalid" } };
-      return { ok: true, doc: { ...task, id: task.id, version: Number.isInteger(task.version) ? task.version : 1 } };
+      return { ok: true, doc: omitUndefined({ ...task, id: task.id, version: Number.isInteger(task.version) ? task.version : 1 }) };
     }
     if (!existing) return { ok: false, error: { code: "not_found" } };
     if (op.expectedVersion != null && existing.version !== op.expectedVersion) {
@@ -836,7 +858,7 @@
       next.createdBy = existing.createdBy;
       next.owner = existing.owner;
       next.visibility = existing.visibility;
-      return { ok: true, doc: next };
+      return { ok: true, doc: omitUndefined(next) };
     }
     return { ok: false, error: { code: "invalid" } };
   };
@@ -1043,7 +1065,7 @@
     FLAGS, YOSSI_EMAIL, isYossi, isBotSourceKey,
     allTasks, stripTasksFromTree, attachTasksToTree, teamStateForWrite,
     ancestorPrivacy, canReadTask, canEditTask, canApproveTask,
-    normalizeTask, applyTaskMutation, assembleData,
+    normalizeTask, applyTaskMutation, omitUndefined, assembleData,
     cloneTeamState, mergeTeamStructurePreservingTasks, findTaskLocation,
     findProjectLocation, moveTaskInState, applyLegacyBlobMutation, canBulkReplaceData,
   };

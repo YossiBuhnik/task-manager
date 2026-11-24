@@ -253,7 +253,9 @@ function useCloud() {
         if (result.deleted) {
           tx.delete(ref);
         } else {
-          tx.set(ref, { ...result.doc, updatedAt: fb.serverTimestamp() });
+          tx.set(ref, Object.assign(window.TM.omitUndefined(result.doc), {
+            updatedAt: fb.serverTimestamp(),
+          }));
         }
       });
       setStatus("synced");

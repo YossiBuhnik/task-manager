@@ -48,6 +48,27 @@ function applyDots(target, fields) {
   return out;
 }
 
+function undefinedField(value, path, seen) {
+  if (value === undefined) return path || "$";
+  if (!value || typeof value !== "object" || (seen && seen.has(value))) return "";
+  if (value._sv) return "";
+  const bag = seen || new Set();
+  bag.add(value);
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      const hit = undefinedField(value[i], path + "[" + i + "]", bag);
+      if (hit) return hit;
+    }
+    return "";
+  }
+  const keys = Object.keys(value);
+  for (let i = 0; i < keys.length; i++) {
+    const hit = undefinedField(value[keys[i]], path + "." + keys[i], bag);
+    if (hit) return hit;
+  }
+  return "";
+}
+
 function createMemoryFirestore() {
   const team = { exists: false, data: {} };
   const tasks = new Map();
@@ -56,6 +77,8 @@ function createMemoryFirestore() {
   const collection = (_db, ...segments) => ({ _path: segments.join("/"), _segments: segments, _col: true });
 
   const setDoc = async (ref, data, opts = {}) => {
+    const bad = undefinedField(data, ref._path);
+    if (bad) throw new Error("Unsupported field value: undefined (found in field " + bad + ")");
     log.push({ op: "setDoc", path: ref._path, merge: !!opts.merge, data: clone(data) });
     if (ref._path === "teams/main") {
       team.exists = true;
@@ -66,6 +89,8 @@ function createMemoryFirestore() {
     }
   };
   const updateDoc = async (ref, fields) => {
+    const bad = undefinedField(fields, ref._path);
+    if (bad) throw new Error("Unsupported field value: undefined (found in field " + bad + ")");
     log.push({ op: "updateDoc", path: ref._path, data: clone(fields) });
     if (ref._path === "teams/main") {
       if (!team.exists) { const err = new Error("not-found"); err.code = "not-found"; throw err; }
@@ -359,6 +384,39 @@ async function main() {
   is("local allows bulk replace", TM.canBulkReplaceData(false) === true);
   is("cloud rejects bulk replace", TM.canBulkReplaceData(true) === false);
 
+  console.log("undefined fields are not written");
+  {
+    const existing = {
+      id: "t_xjlv8fg5fuz", title: "Migrated", status: "todo", priority: "mid", due: "2026-11-30",
+      projectId: "p1", cityId: "c1", areaId: "area_office", source: "", awaitingReview: false,
+      owner: undefined, visibility: undefined,
+      extra: { keep: "yes", drop: undefined },
+      items: [undefined, { title: "e", url: undefined }],
+    };
+    const result = TM.applyTaskMutation(existing, { type: "update", fields: { status: "done" } });
+    is("update ok", result.ok);
+    is("owner key omitted", !Object.prototype.hasOwnProperty.call(result.doc, "owner"));
+    is("visibility key omitted", !Object.prototype.hasOwnProperty.call(result.doc, "visibility"));
+    eq("nested undefined dropped", result.doc.extra, { keep: "yes" });
+    eq("array undefined dropped", result.doc.items, [{ title: "e" }]);
+    eq("status still written", result.doc.status, "done");
+    is("explicit null owner kept", Object.prototype.hasOwnProperty.call(
+      TM.applyTaskMutation({ ...existing, owner: null, visibility: "shared" }, { type: "update", fields: { title: "B" } }).doc,
+      "owner"));
+    const fb = createMemoryFirestore();
+    fb.seedTeam(sampleTeam);
+    fb._tasks.set("t_xjlv8fg5fuz", {
+      id: "t_xjlv8fg5fuz", title: "Migrated", status: "todo", version: 1,
+      projectId: "p1", cityId: "c1", areaId: "area_office", source: "",
+    });
+    const layer = createLayer(fb, { readLegacyBlob: false });
+    const wrote = await layer.updateTaskDoc("t_xjlv8fg5fuz", { status: "done" }, 1);
+    is("firestore set accepts the doc", wrote.ok);
+    const stored = fb._tasks.get("t_xjlv8fg5fuz");
+    is("stored doc has no owner", !Object.prototype.hasOwnProperty.call(stored, "owner"));
+    eq("stored status", stored.status, "done");
+  }
+
   console.log("quick done toggle");
   eq("todo becomes done", TM.quickDoneStatus("todo"), "done");
   eq("doing becomes done", TM.quickDoneStatus("doing"), "done");
@@ -373,6 +431,9 @@ async function main() {
   is("table uses the toggle", tableFn.indexOf("DoneToggle") !== -1);
   is("board cards and table share the toggle", boardFn.indexOf("onToggleDone={onToggleDone}") !== -1 && views.indexOf("onToggleDone={toggleDone}") !== -1);
   is("toggle uses updateTask", views.slice(views.indexOf("function quickDone"), views.indexOf("function DoneToggle")).indexOf("actions.updateTask") !== -1);
+  const reminders = views.slice(views.indexOf('title="תזכורות קרובות"'), views.indexOf('title="ממתין לאחרים"'));
+  is("reminders reuse the done toggle", reminders.indexOf("onToggleDone={toggleDone}") !== -1);
+  is("waiting list has no done toggle", views.slice(views.indexOf('title="ממתין לאחרים"'), views.indexOf('title="ממתין לאחרים"') + 280).indexOf("onToggleDone") === -1);
 
   console.log("client guards");
   {
