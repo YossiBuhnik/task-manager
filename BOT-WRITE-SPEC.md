@@ -2,7 +2,7 @@
 
 This is the detailed write-point spec for **PR2** (`ido/bot-writes`). It does not change running systems. It follows Yossi's decisions of 23/11/2026 and `TASK-BOARD-CONTRACT.md`.
 
-Decision (contract §7): **one Apps Script bridge is the write point for all bots**, including `calendar-agent` and `tasks_app.py`. No direct bot writes to Firestore, even with a service account. Extend that bridge with a **separate token per bot**. Do **not** add Cloud Functions and do **not** switch the Firebase project to Blaze.
+Decision (contract §7): **one Apps Script bridge is the write point for all bots**, including `tasks_app.py`. No direct bot writes to Firestore, even with a service account. Extend that bridge with a **separate token per bot**. Do **not** add Cloud Functions and do **not** switch the Firebase project to Blaze. The legacy Apps Script is «גשר משימות»: its triggers were deleted for the freeze, and only `exportTasks` is restored afterwards.
 
 Secrets (tokens, service-account JSON) live only in Apps Script **Script Properties**. They are never committed. The property that existing tools call `FIREBASE_TASKS_SA_JSON` must not be read or printed from Joe's box; PR2 copies the same kind of credential into Script Properties through a manual, approved setup step.
 
@@ -10,7 +10,7 @@ Secrets (tokens, service-account JSON) live only in Apps Script **Script Propert
 
 - One Google Apps Script web app, deployed as a web app (`doPost`).
 - HTTPS POST, JSON body, `Content-Type: application/json`.
-- The shared bridge project / deployment ID is not in the public repo [לאימות]. That bridge is distinct from `calendar-agent`'s own `Code.gs` (see §11), which today writes Firestore directly and must be converted onto this bridge, not kept as a second write path.
+- The shared bridge project / deployment ID is not in the public repo [לאימות]. It is distinct from the legacy script «גשר משימות» (see §11). That script is not a second write path.
 - The script writes with a **service account** stored in Script Properties, via the Firestore REST API, to `teams/main/tasks/{id}` (one document per task). It does **not** rewrite the legacy `teams/main` `state` blob. This is the only permitted service-account writer. Client (Yossi) writes go through the app under Firestore rules (PR1), not through this endpoint.
 - **Ordering guarantee:** the bridge serializes writes **per task** with a transaction plus an `updatedAt` / version precondition and `idempotencyKey`. Concurrent or retried writes to the same id keep a defined order, do not clobber, and do not duplicate.
 
@@ -231,30 +231,28 @@ These writers today write Firestore **directly** (the `teams/main.state` blob, v
 - PR2: talk to this endpoint only (per-task documents + `idempotencyKey`). Keep dry-run. Direct SA writes to the blob are removed.
 - Migration window: freeze `apply` (export/backup may remain).
 
-### `calendar-agent`
+### «גשר משימות»
 
-- Today it writes **directly to Firestore** with a **service account**. Its Apps Script is `Code.gs` in the calendar-agent folder (not in this repo; the folder is gitignored), two-way with triggers.
-- PR2 conversion: **stop all direct Firestore writes**. Route every create / update / due change through this bridge, with **its own bot token** and source `calendar-agent`. Use calendar event ids in `idempotencyKey`.
-- Migration window: **pause its `Code.gs` triggers** so two-way sync cannot write during PR3. Leave them paused until Yossi approves the unfreeze onto the bridge only.
-- After cut-over, `calendar-agent` has no service-account write of its own; only the bridge holds the SA.
+- This is the legacy Apps Script. Its triggers were deleted for the freeze.
+- Only `exportTasks` is restored afterwards.
 
 ### Cut-over order
 
 1. Ship PR2 behind a flag or unreleased URL; keep current writers as they are until conversion is verified.
-2. Convert `tasks_app.py` and `calendar-agent` to this bridge (own tokens; no direct SA writes), with dry-run comparison.
-3. Freeze all bot writers for the PR3 window: pause `calendar-agent` `Code.gs` triggers, freeze `tasks_app.py` `apply`, pause the Drive queue, and disable leftover direct SA writes.
+2. Convert `tasks_app.py` to this bridge (own token; no direct SA writes), with dry-run comparison.
+3. Freeze bot writers for the PR3 window: the «גשר משימות» triggers are deleted, `tasks_app.py` `apply` is frozen, the Drive queue is paused, and leftover direct SA writes are disabled. Only `exportTasks` is restored afterwards.
 4. Run the approved migration (PR3, currently on hold).
 5. After Yossi approves: unfreeze writers onto this endpoint only.
 
 ## 12. What PR2 implements (and what it does not)
 
-Implements: the Apps Script `doPost` handler (including the per-task ordering guarantee), Script Property setup instructions (no secret values), token check, validation, authorization matrix (Joe token vs other bots), idempotency, audit, rate limit, Firestore per-task writes, Drive-queue adapter, a small bot client used by converted writers, and the freeze/conversion of `tasks_app.py` and `calendar-agent` (stop direct writes, pause `Code.gs` triggers, route through the bridge).
+Implements: the Apps Script `doPost` handler (including the per-task ordering guarantee), Script Property setup instructions (no secret values), token check, validation, authorization matrix (Joe token vs other bots), idempotency, audit, rate limit, Firestore per-task writes, Drive-queue adapter, a small bot client used by converted writers, and the freeze of `tasks_app.py` plus the legacy script «גשר משימות» (triggers deleted; only `exportTasks` restored).
 
 Does not: deploy without Yossi's approval; merge to `main`; delete the legacy `state` blob; read or print secrets; change UI files; change this contract (that is an Ido contract PR only).
 
 ## 13. Implementation notes (PR2 code)
 
-Code lives in `bridge/` (`logic.js` + `Code.gs`) with clients `bot-client.js` and `bot_client.py`. Setup, property names, and the full conversion steps for `tasks_app.py` and `calendar-agent` are in `bridge/README.md`. This PR does not deploy the web app and does not modify the live `tasks_app.py`.
+Code lives in `bridge/` (`logic.js` + `Code.gs`) with clients `bot-client.js` and `bot_client.py`. Setup, property names, and the conversion steps for `tasks_app.py` are in `bridge/README.md`. This PR does not deploy the web app and does not modify the live `tasks_app.py`.
 
 **Pre-migration flag.** Script Property `MIGRATION_DONE` must be `"true"` before the bridge will write. Until then every authenticated request is refused with body `code: "migration_pending"` (logical 403). The live web app still returns HTTP 200 for that body; clients must not look at the HTTP status line. This is the safe option: the bridge never writes the legacy `teams/main.state` blob (the overwrite risk). Existing writers stay on their current paths until they are frozen for PR3; after a successful migration and Yossi's approval, set the flag and unfreeze them onto this endpoint only.
 
@@ -266,7 +264,7 @@ A `yossi` token, if added later, has the same authorization as the Joe token on 
 
 - (a) The `applyUpdates` / `updates-*.json` path is **frozen, not deleted** (Yossi, 24/11/2026). The switch is `APPLY_FROZEN` in Joe's `tasks_app.py` (outside this repo). It is turned on at migration step 6 (freeze writers) and stays on. Files stay in place as a backup for 2 weeks from the migration date. Deletion only with Yossi's explicit approval then.
 - (b) The Drive queue is paused, or it is drained only through this bridge.
-- (c) `calendar-agent` is converted onto this bridge with its own token. Its direct service-account writes and its `Code.gs` triggers are removed.
+- (c) The legacy Apps Script «גשר משימות» had its triggers deleted for the freeze. Only `exportTasks` is restored afterwards.
 - (d) `tasks_app.py` is converted onto this bridge.
 
 ## Decision: freeze updates-*.json / applyUpdates

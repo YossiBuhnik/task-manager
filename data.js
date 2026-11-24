@@ -688,11 +688,10 @@
   };
 
   // ─── PR1 data layer (additive) ─────────────────────────────
-  // readLegacyBlob: true = read and write the legacy teams/main.state blob
-  // (default until PR3; also the rollback switch). Writes use a transaction
-  // that re-reads state and patches only the changed task(s) by id.
-  // False = read teams/main/tasks (realtime) and write per-task docs.
-  // Flip to false only after PR3 and Yossi's approval.
+  // readLegacyBlob: true = read and write tasks inside the legacy
+  // teams/main.state blob (rollback only). False = read teams/main/tasks
+  // and write per-task docs. The app sets false in firebase-config.js.
+  // The blob itself is left in Firestore.
   const YOSSI_EMAIL = "yossib@tskeng-il.co.il";
   const FLAGS = Object.assign({ readLegacyBlob: true }, window.TM_FLAGS || {});
 

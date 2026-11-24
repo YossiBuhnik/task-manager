@@ -181,13 +181,9 @@ Each תחום (top-level area) has a visibility setting in the edit modal:
 
 After migration, tasks live at **`teams/main/tasks/{id}`**. The team document `teams/main` keeps areas, clients, and projects only (no task arrays as source of truth). The app writes **one task document at a time** (transaction + `version` / `updatedAt` precondition) and uses field-level `updateDoc` for the team doc.
 
-Until PR3 has run, keep `window.TM_FLAGS.readLegacyBlob = true` in `firebase-config.js` (the default). In that mode the app stays **fully working** on the legacy `teams/main.state` blob: reads and writes. Writes go through a **transaction** that re-reads `state`, applies only the changed task(s) by id, and writes the merged state back — not a blind `setDoc` of a stale local copy, so a concurrent bot edit to another task is not lost. A first-time team document may be created with `setDoc(..., { merge: true })` only if the transaction sees that the doc does not exist; an existing doc is never overwritten with `setDoc`.
+`firebase-config.js` sets `window.TM_FLAGS.readLegacyBlob = false`. Task reads and writes use `teams/main/tasks/{id}`. Areas, cities, and projects still come from the team document. The legacy `teams/main.state` blob is left in Firestore; this switch does not delete it and does not add a new blob write for tasks. A first-time team document may be created with `setDoc(..., { merge: true })` only if the transaction sees that the doc does not exist; an existing doc is never overwritten with `setDoc`.
 
-After a successful migration and Yossi's approval:
-
-1. Deploy the draft `firestore.rules` **only after Yossi approves** (the live rules stay as they are until then).
-2. Set `window.TM_FLAGS.readLegacyBlob = false` and redeploy the app. From then on, reads and writes use the per-task collection.
-3. To roll back, set the flag back to `true`. The new collection is left in place and unused; the legacy blob is not deleted.
+Publish `firestore.rules` before this app build is what people load (see «פרסום חוקי Firestore - מדריך ליוסי» in `bridge/README.md`). The rules that are live today allow the team document only, so they do not allow the client to read the task collection. To roll the app back, set the flag to `true` and redeploy. The task collection stays in place.
 
 `replaceAll` / `resetSeed` (import JSON / reset to sample data) are local and demo only; they are disabled when signed in to the cloud.
 
