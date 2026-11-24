@@ -182,18 +182,27 @@ Temporary adapter, not the source of truth.
 
 Default: 60 requests per token per minute [לאימות]. Burst of a Drive-queue flush should stay under this or use a documented higher cap for the `joe` token.
 
-| HTTP | Code | When |
+Clients MUST decide by the JSON body field `code` (`ok`, `migration_pending`, `unauthorized`, `forbidden`, `invalid`, `not_found`, `conflict`, `rate_limited`, `internal`), not by the HTTP status line. Verified on the live Apps Script web app: every contract error is still HTTP 200, and the code is only in the body. The numbers in the table are logical statuses for that `code`. They are not what `POST /exec` returns.
+
+`POST /exec` answers **302** to a `googleusercontent` echo URL. Clients must follow that redirect with **GET** (the default for `urllib` and for `fetch`) and must not re-POST the body.
+
+| Logical status | `code` | When |
 |---|---|---|
 | 200 | `ok` | Write applied, or idempotent replay of a successful write. |
 | 400 | `invalid` | Schema / enum / duration / due validation failed. |
 | 401 | `unauthorized` | Missing or unknown token. |
 | 403 | `forbidden` | Source mismatch, rule 5, approve/markDone by a non-Joe token, or update of an already-approved task by a non-Joe bot. |
+| 403 | `migration_pending` | `MIGRATION_DONE` is not `"true"`. |
 | 404 | `not_found` | Task id does not exist. |
 | 409 | `conflict` | Idempotency key reused with a different payload. |
 | 429 | `rate_limited` | Token exceeded the rate limit. |
 | 500 | `internal` | Unexpected failure. Log only the error code and `idempotencyKey`, never secrets. |
 
 Response body: `{ ok: boolean, code: string, taskId?: string, error?: string }`.
+
+### Idempotency key guidance
+
+A key must identify **one intended write**, not a day. The same key with the same payload returns the cached result and does not write again. The same key with a different payload is `conflict` (logical 409). A key such as `<source>:<date>:<taskId>:setDue:<due>` is wrong: A→B→A on the same day silently drops the last write, because the second A matches the first key and payload. Recommended: `<source>:<run-or-message-id>:<item-index-or-id>:<op>`. The run id stays stable across retries of that batch (for example a hash of the input file) and is new for a new batch.
 
 ## 11. Existing writers — freeze and convert
 
@@ -231,7 +240,7 @@ Does not: deploy without Yossi's approval; merge to `main`; delete the legacy `s
 
 Code lives in `bridge/` (`logic.js` + `Code.gs`) with clients `bot-client.js` and `bot_client.py`. Setup, property names, and the full conversion steps for `tasks_app.py` and `calendar-agent` are in `bridge/README.md`. This PR does not deploy the web app and does not modify the live `tasks_app.py`.
 
-**Pre-migration flag.** Script Property `MIGRATION_DONE` must be `"true"` before the bridge will write. Until then every authenticated request is refused with `403 migration_pending`. This is the safe option: the bridge never writes the legacy `teams/main.state` blob (the overwrite risk). Existing writers stay on their current paths until they are frozen for PR3; after a successful migration and Yossi's approval, set the flag and unfreeze them onto this endpoint only.
+**Pre-migration flag.** Script Property `MIGRATION_DONE` must be `"true"` before the bridge will write. Until then every authenticated request is refused with body `code: "migration_pending"` (logical 403). The live web app still returns HTTP 200 for that body; clients must not look at the HTTP status line. This is the safe option: the bridge never writes the legacy `teams/main.state` blob (the overwrite risk). Existing writers stay on their current paths until they are frozen for PR3; after a successful migration and Yossi's approval, set the flag and unfreeze them onto this endpoint only.
 
 A `yossi` token, if added later, has the same authorization as the Joe token on this endpoint.
 
