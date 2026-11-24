@@ -162,6 +162,9 @@
     return "";
   };
 
+  // Board card toggle: open (todo or doing) becomes done, done becomes todo.
+  const quickDoneStatus = (status) => (status === "done" ? "todo" : "done");
+
   // Completing a recurring task rolls it to its next occurrence.
   const rollTask = (task) => (task.recur && task.status === "done")
     ? { ...task, status: "todo", due: nextRecurDue(task.recur, task.due), lastDone: toDateInput(new Date()) }
@@ -1030,7 +1033,7 @@
     calendarUrl,
     blockersOf, taskState, wouldCycle, dependencyLayout, linkStandardTasks,
     WEEKDAYS, MONTHS, firstRecurDue, nextRecurDue, recurFromDue, recurLabel,
-    rollTask, rollAllRecurring,
+    rollTask, rollAllRecurring, quickDoneStatus,
     DEFAULT_AREAS, migrate,
     newArea, newCity, newProject, newTask, standardTasks,
     canSee, todoScore,
