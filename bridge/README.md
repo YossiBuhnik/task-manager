@@ -22,9 +22,17 @@ Deployment after approval: Execute as me (`yossib@tskeng-il.co.il`); Who has acc
 
 ## Safe pre-migration behaviour
 
-Until `MIGRATION_DONE` is `"true"`, the bridge **refuses** writes with `403 migration_pending`. It does **not** write the legacy `teams/main.state` blob (that is the overwrite risk). Existing writers keep using their current paths until they are frozen for the migration window, then converted onto this bridge after the flag is set.
+Until `MIGRATION_DONE` is `"true"`, the bridge **refuses** writes with body `code: "migration_pending"` (logical 403). It does **not** write the legacy `teams/main.state` blob (that is the overwrite risk). Existing writers keep using their current paths until they are frozen for the migration window, then converted onto this bridge after the flag is set.
 
 After the flag is on, writes go only to `teams/main/tasks/{id}` (plus idempotency and audit). The blob is never modified here.
+
+## How clients read a response
+
+The live Apps Script web app returns **HTTP 200** for every contract error. Clients MUST decide by the JSON body `code` (`migration_pending`, `unauthorized`, `forbidden`, `invalid`, `conflict`, `rate_limited`, and the rest), not by the HTTP status line. The numbers in `BOT-WRITE-SPEC.md` §10 are logical statuses for that `code`.
+
+`POST /exec` answers **302** to a `googleusercontent` echo URL. Follow it with **GET** (default `urllib` and `fetch` behaviour). Do not re-POST the body.
+
+An idempotency key names one intended write, not a day. Same key + same payload is the cached result; same key + a different payload is `conflict`. Use `<source>:<run-or-message-id>:<item-index-or-id>:<op>`, with the run id stable across retries of that batch and new for a new batch. A key that includes only the date and the new due (`…:setDue:<due>`) drops A→B→A on the same day.
 
 ## Converting `tasks_app.py` (do not edit the live script in this PR)
 
