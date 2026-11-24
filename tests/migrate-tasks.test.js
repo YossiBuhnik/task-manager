@@ -7,6 +7,7 @@ const path = require("path");
 const vm = require("vm");
 const { spawnSync } = require("child_process");
 const M = require("../scripts/migrate-tasks.js");
+const TMBridge = require("../bridge/logic.js");
 
 const FIXTURE = path.join(__dirname, "fixtures", "migrate-sample.json");
 const ROOT = path.join(__dirname, "..");
@@ -42,6 +43,10 @@ async function main() {
   eq("existing range kept", [ranged.durationMin, ranged.durationMax], [10, 20]);
   const mapped = plan.docs.find((d) => d.id === "t_04");
   eq("legacy duration 30", [mapped.durationMin, mapped.durationMax], [30, 30]);
+  const bridgePlan = TMBridge.planMigration(state, { asOf: "2026-11-23" });
+  eq("parity docs", bridgePlan.docs, plan.docs);
+  eq("parity counts", [bridgePlan.counts.input, bridgePlan.counts.documents, bridgePlan.counts.skipped, bridgePlan.counts.missingCreatedAt, bridgePlan.counts.durationMapped], [plan.inputTaskCount, plan.docs.length, plan.skipped, plan.missingCreatedAt, plan.durationMapped]);
+  eq("parity problems", bridgePlan.problems, plan.errors.map((e) => { const p = { code: e.error }; if (e.id) p.id = e.id; return p; }));
 
   console.log("unit conversion and clamp");
   eq("30 min", M.durationUnitOf(30, 30), "min");

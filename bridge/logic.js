@@ -860,6 +860,223 @@
     };
   }
 
+  var MIGRATE_STATUS = ["todo", "doing", "done"];
+  var MIGRATE_PRIORITY = ["high", "mid", "low"];
+  var MIGRATE_SOURCES = ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked", "calendar-agent", "yossi", ""];
+  var DAY_MINUTES = 480;
+  var DURATION_MAX = 14400;
+
+  function jerusalemDate(now, asOf) {
+    if (asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf)) return asOf;
+    var parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Jerusalem",
+      year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(now || new Date());
+    var pick = function (t) {
+      for (var i = 0; i < parts.length; i++) if (parts[i].type === t) return parts[i].value;
+      return "";
+    };
+    return pick("year") + "-" + pick("month") + "-" + pick("day");
+  }
+
+  function isInt(n) {
+    return typeof n === "number" && isFinite(n) && Math.floor(n) === n;
+  }
+
+  function coercedInt(n, fallback) {
+    var v = Number(n);
+    return isInt(v) ? v : fallback;
+  }
+
+  function durationRangeOfTask(task) {
+    var min = task.durationMin;
+    var max = task.durationMax;
+    if (min == null && max == null) {
+      var d = coercedInt(task.duration, 60);
+      min = max = d;
+    }
+    min = coercedInt(min, 60);
+    max = coercedInt(max, min);
+    if (min < 1) min = 1;
+    if (max > DURATION_MAX) max = DURATION_MAX;
+    if (min > max) max = min;
+    return { durationMin: min, durationMax: max };
+  }
+
+  function durationUnitOf(min, max) {
+    if (max >= DAY_MINUTES && min % DAY_MINUTES === 0 && max % DAY_MINUTES === 0) return "day";
+    if (max >= 60 && min % 30 === 0 && max % 30 === 0) return "hour";
+    return "min";
+  }
+
+  function validCreatedAt(v) {
+    if (!v || typeof v !== "string") return false;
+    return !isNaN(new Date(v));
+  }
+
+  function normalizeMigrateSource(source) {
+    for (var i = 0; i < MIGRATE_SOURCES.length; i++) if (MIGRATE_SOURCES[i] === source) return source;
+    return "";
+  }
+
+  function awaitingReviewOf(task, source) {
+    if (typeof task.awaitingReview === "boolean") return task.awaitingReview;
+    return BOT_SOURCES.indexOf(source) !== -1;
+  }
+
+  function copyOwn(src) {
+    var o = {};
+    if (!src) return o;
+    for (var k in src) if (Object.prototype.hasOwnProperty.call(src, k)) o[k] = src[k];
+    return o;
+  }
+
+  function migrateOne(entry, opts) {
+    opts = opts || {};
+    var t = entry.task || {};
+    if (!t.id || typeof t.id !== "string") return { ok: false, error: "missing-id" };
+    var dur = durationRangeOfTask(t);
+    var inferred = !validCreatedAt(t.createdAt);
+    var createdAt = inferred
+      ? jerusalemDate(opts.now, opts.asOf)
+      : (t.createdAt.length >= 10 ? t.createdAt.slice(0, 10) : t.createdAt);
+    var source = normalizeMigrateSource(t.source != null ? t.source : "");
+    var doc = copyOwn(t);
+    doc.id = t.id;
+    doc.title = t.title || "";
+    doc.status = MIGRATE_STATUS.indexOf(t.status) !== -1 ? t.status : "todo";
+    doc.priority = MIGRATE_PRIORITY.indexOf(t.priority) !== -1 ? t.priority : "mid";
+    doc.due = t.due || "";
+    doc.durationMin = dur.durationMin;
+    doc.durationMax = dur.durationMax;
+    doc.durationUnit = durationUnitOf(dur.durationMin, dur.durationMax);
+    doc.duration = t.duration != null ? t.duration : dur.durationMin;
+    doc.source = source;
+    doc.awaitingReview = awaitingReviewOf(t, source);
+    doc.createdBy = t.createdBy || "";
+    doc.createdAt = createdAt;
+    doc.projectId = t.projectId || entry.projectId || "";
+    doc.cityId = t.cityId || entry.cityId || "";
+    doc.areaId = t.areaId || entry.areaId || "";
+    doc.idempotencyKey = "migrate:" + t.id;
+    doc.version = isInt(t.version) ? t.version : 1;
+    if (inferred) doc.createdAtInferred = true;
+    return {
+      ok: true,
+      doc: doc,
+      inferredCreatedAt: inferred,
+      durationMapped: t.durationMin == null && t.durationMax == null,
+    };
+  }
+
+  function countKeys(docs, field, keys) {
+    var h = {};
+    var i;
+    for (i = 0; i < (keys || []).length; i++) h[keys[i]] = 0;
+    for (i = 0; i < docs.length; i++) {
+      var k = docs[i][field];
+      if (k == null || k === "") k = "(none)";
+      h[k] = (h[k] || 0) + 1;
+    }
+    return h;
+  }
+
+  function planMigration(state, asOfOrOpts) {
+    var opts = {};
+    if (typeof asOfOrOpts === "string") opts.asOf = asOfOrOpts;
+    else if (asOfOrOpts) opts = asOfOrOpts;
+    var extracted = [];
+    var cities = (state && state.cities) || [];
+    var ci, pi, ti, city, project, task;
+    for (ci = 0; ci < cities.length; ci++) {
+      city = cities[ci] || {};
+      var projects = city.projects || [];
+      for (pi = 0; pi < projects.length; pi++) {
+        project = projects[pi] || {};
+        var tasks = project.tasks || [];
+        for (ti = 0; ti < tasks.length; ti++) {
+          task = tasks[ti];
+          extracted.push({
+            task: task,
+            cityId: city.id || "",
+            projectId: project.id || "",
+            areaId: city.areaId || (city.area && city.area.id) || "",
+          });
+        }
+      }
+    }
+    var docs = [];
+    var problems = [];
+    var missingCreatedAt = 0;
+    var durationMapped = 0;
+    var seen = {};
+    for (var i = 0; i < extracted.length; i++) {
+      var result = migrateOne(extracted[i], opts);
+      if (!result.ok) {
+        problems.push({ code: result.error });
+        continue;
+      }
+      if (seen[result.doc.id]) {
+        problems.push({ code: "duplicate-id", id: result.doc.id });
+        continue;
+      }
+      seen[result.doc.id] = 1;
+      docs.push(result.doc);
+      if (result.inferredCreatedAt) missingCreatedAt++;
+      if (result.durationMapped) durationMapped++;
+    }
+    return {
+      docs: docs,
+      counts: {
+        input: extracted.length,
+        documents: docs.length,
+        skipped: problems.length,
+        missingCreatedAt: missingCreatedAt,
+        durationMapped: durationMapped,
+        status: countKeys(docs, "status", MIGRATE_STATUS),
+        priority: countKeys(docs, "priority", MIGRATE_PRIORITY),
+        area: countKeys(docs, "areaId"),
+      },
+      problems: problems,
+    };
+  }
+
+  function migrationLogLines(plan) {
+    var c = (plan && plan.counts) || {};
+    var lines = [];
+    lines.push("documents=" + (c.documents || 0) + " input=" + (c.input || 0) + " skipped=" + (c.skipped || 0));
+    lines.push("missingCreatedAt=" + (c.missingCreatedAt || 0) + " durationMapped=" + (c.durationMapped || 0));
+    var st = c.status || {};
+    lines.push("status todo=" + (st.todo || 0) + " doing=" + (st.doing || 0) + " done=" + (st.done || 0));
+    var problems = (plan && plan.problems) || [];
+    for (var i = 0; i < problems.length; i++) {
+      var p = problems[i];
+      lines.push("problem " + p.code + (p.id ? " id=" + p.id : ""));
+    }
+    return lines;
+  }
+
+  function evaluateMigrationRun(input) {
+    input = input || {};
+    if (input.migrationDone === true || input.migrationDone === "true") {
+      return { ok: false, error: "migration_done" };
+    }
+    if (!input.dryRun || !input.dryRun.hash) return { ok: false, error: "missing_dry_run" };
+    if (input.dryRun.hash !== input.currentHash) return { ok: false, error: "hash_mismatch" };
+    var existing = {};
+    var ids = input.existingIds || [];
+    var i;
+    for (i = 0; i < ids.length; i++) existing[ids[i]] = 1;
+    var toWrite = [];
+    var skipped = 0;
+    var docs = input.docs || [];
+    for (i = 0; i < docs.length; i++) {
+      if (existing[docs[i].id]) skipped++;
+      else toWrite.push(docs[i]);
+    }
+    return { ok: true, toWrite: toWrite, written: toWrite.length, skipped: skipped, failed: 0 };
+  }
+
   var api = {
     OPS: OPS,
     BOT_SOURCES: BOT_SOURCES,
@@ -883,6 +1100,14 @@
     durationOf: durationOf,
     isValidDuration: isValidDuration,
     isIsoDateOrEmpty: isIsoDateOrEmpty,
+    planMigration: planMigration,
+    migrateOne: migrateOne,
+    durationUnitOf: durationUnitOf,
+    DAY_MINUTES: DAY_MINUTES,
+    DURATION_MAX: DURATION_MAX,
+    migrationLogLines: migrationLogLines,
+    evaluateMigrationRun: evaluateMigrationRun,
+    stableStringify: stableStringify,
   };
 
   root.TMBridge = api;

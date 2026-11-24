@@ -13,6 +13,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const TMBridge = require("../bridge/logic.js");
 
 const STATUS = ["todo", "doing", "done"];
 const PRIORITY = ["high", "mid", "low"];
@@ -92,106 +93,29 @@ function durationRange(task) {
 }
 
 function durationUnitOf(min, max) {
-  if (max >= DAY_MINUTES && min % DAY_MINUTES === 0 && max % DAY_MINUTES === 0) return "day";
-  if (max >= 60 && min % 30 === 0 && max % 30 === 0) return "hour";
-  return "min";
+  return TMBridge.durationUnitOf(min, max);
 }
 
-function validCreatedAt(v) {
-  if (!v || typeof v !== "string") return false;
-  return !isNaN(new Date(v));
-}
-
-function normalizeSource(source) {
-  return SOURCES.indexOf(source) !== -1 ? source : "";
-}
-
-function awaitingReviewOf(task, source) {
-  if (typeof task.awaitingReview === "boolean") return task.awaitingReview;
-  return BOT_SOURCES.indexOf(source) !== -1;
-}
-
-function migrateTask(entry, { asOf, now } = {}) {
-  const t = entry.task || {};
-  if (!t.id || typeof t.id !== "string") return { ok: false, error: "missing-id" };
-  const dur = durationRange(t);
-  const inferred = !validCreatedAt(t.createdAt);
-  const createdAt = inferred
-    ? jerusalemDate(now, asOf)
-    : (t.createdAt.length >= 10 ? t.createdAt.slice(0, 10) : t.createdAt);
-  const source = normalizeSource(t.source != null ? t.source : "");
-  const doc = {
-    ...t,
-    id: t.id,
-    title: t.title || "",
-    status: STATUS.indexOf(t.status) !== -1 ? t.status : "todo",
-    priority: PRIORITY.indexOf(t.priority) !== -1 ? t.priority : "mid",
-    due: t.due || "",
-    durationMin: dur.durationMin,
-    durationMax: dur.durationMax,
-    durationUnit: durationUnitOf(dur.durationMin, dur.durationMax),
-    duration: t.duration != null ? t.duration : dur.durationMin,
-    source,
-    awaitingReview: awaitingReviewOf(t, source),
-    createdBy: t.createdBy || "",
-    createdAt,
-    projectId: t.projectId || entry.projectId || "",
-    cityId: t.cityId || entry.cityId || "",
-    areaId: t.areaId || entry.areaId || "",
-    idempotencyKey: "migrate:" + t.id,
-    version: Number.isInteger(t.version) ? t.version : 1,
-  };
-  if (inferred) doc.createdAtInferred = true;
-  return {
-    ok: true,
-    doc,
-    inferredCreatedAt: inferred,
-    durationMapped: t.durationMin == null && t.durationMax == null,
-  };
-}
-
-function histogram(docs, field, keys) {
-  const h = {};
-  for (const k of keys || []) h[k] = 0;
-  for (const d of docs) {
-    const k = d[field] == null || d[field] === "" ? "(none)" : d[field];
-    h[k] = (h[k] || 0) + 1;
-  }
-  return h;
+function migrateTask(entry, opts = {}) {
+  return TMBridge.migrateOne(entry, opts);
 }
 
 function planMigration(state, opts = {}) {
-  const extracted = extractTasks(state);
-  const docs = [];
-  const errors = [];
-  let missingCreatedAt = 0;
-  let durationMapped = 0;
-  const seen = new Set();
-  for (const entry of extracted) {
-    const result = migrateTask(entry, opts);
-    if (!result.ok) {
-      errors.push({ error: result.error });
-      continue;
-    }
-    if (seen.has(result.doc.id)) {
-      errors.push({ error: "duplicate-id", id: result.doc.id });
-      continue;
-    }
-    seen.add(result.doc.id);
-    docs.push(result.doc);
-    if (result.inferredCreatedAt) missingCreatedAt++;
-    if (result.durationMapped) durationMapped++;
-  }
+  const planned = TMBridge.planMigration(state, opts);
   return {
-    inputTaskCount: extracted.length,
-    docs,
-    errors,
-    skipped: errors.length,
-    missingCreatedAt,
-    durationMapped,
-    status: histogram(docs, "status", STATUS),
-    priority: histogram(docs, "priority", PRIORITY),
-    area: histogram(docs, "areaId"),
+    inputTaskCount: planned.counts.input,
+    docs: planned.docs,
+    errors: (planned.problems || []).map((p) => {
+      const e = { error: p.code };
+      if (p.id) e.id = p.id;
+      return e;
+    }),
+    skipped: planned.counts.skipped,
+    missingCreatedAt: planned.counts.missingCreatedAt,
+    durationMapped: planned.counts.durationMapped,
+    status: planned.counts.status,
+    priority: planned.counts.priority,
+    area: planned.counts.area,
   };
 }
 

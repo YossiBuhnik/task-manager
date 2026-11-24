@@ -96,3 +96,15 @@ Until then there is not a single write path.
 10. בדיקה: פותחים את כתובת ה-`/exec` בדפדפן. אמור להופיע `use POST`. אם זה מה שמופיע, סיימת.
 
 אם משהו נראה אחרת ממה שכתוב כאן, עוצרים ושולחים צילום מסך לעידו.
+
+## הרצת ההסבה - מדריך ליוסי
+
+ההסבה מעתיקה את המשימות מתוך `teams/main.state` אל `teams/main/tasks/{id}`. המפתח של Firebase נשאר ב-Apps Script. את הבלוג עצמו לא משנים.
+
+הפעם מעדכנים גם את Code.gs (הפונקציות `migrationDryRun` ו-`migrationRun`), לא רק את Logic.gs. אחרי ההדבקה עושים New version כמו במדריך למעלה.
+
+1. Dry run: בתפריט Run בוחרים `migrationDryRun`. ב-Execution log מופיעות רק ספירות וקודי בעיה (למשל `missing-id` ומזהה), בלי כותרות ובלי הערות. נוצר Script Property בשם `MIGRATION_DRYRUN` עם hash של הבלוג והספירות. אין כתיבה ל-Firestore.
+2. Freeze: מקפיאים כותבים לפני הריצה, לפי שלב 6. `APPLY_FROZEN` ב-`tasks_app.py`, תור ה-Drive, וטריגרים של calendar-agent. אם מישהו כותב לבלוג אחרי ה-dry run, הריצה תיעצר.
+3. Run: בתפריט Run בוחרים `migrationRun`. אם הלוג אומר `missing_dry_run` או `hash_mismatch`, מריצים שוב dry run ואז שוב את הריצה. אם הלוג אומר `migration_done`, ההסבה כבר סומנה ולא רצה שוב.
+
+הצלחה בלוג: שורה `written=… skipped=… failed=0`. נוצר `MIGRATION_RESULT` עם אותם מספרים וה-hash. מסמך נכתב רק אם אין עדיין מסמך עם אותו id (קיים נספר ב-skipped). `teams/main.state` לא משתנה. `MIGRATION_DONE` לא מופעל לבד. אחרי בדיקה ידנית מגדירים אותו ל-`true`.

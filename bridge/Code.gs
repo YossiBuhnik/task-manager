@@ -314,6 +314,127 @@ function putIdempotency_(id, rec) {
   }]);
 }
 
+function hashState_(state) {
+  var json = TMBridge.stableStringify(state);
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, json, Utilities.Charset.UTF_8);
+  var hex = "";
+  var i, v, s;
+  for (i = 0; i < bytes.length; i++) {
+    v = bytes[i];
+    if (v < 0) v += 256;
+    s = v.toString(16);
+    if (s.length < 2) s = "0" + s;
+    hex += s;
+  }
+  return hex;
+}
+
+function taskCreateWrite_(doc) {
+  var name = docName_("teams/main/tasks/" + doc.id);
+  if (name.indexOf("/documents/teams/main/tasks/") === -1) throw new Error("refusing non-task path");
+  return {
+    update: { name: name, fields: toFirestoreFields_(doc) },
+    currentDocument: { exists: false },
+  };
+}
+
+// Run menu. Reads teams/main.state only. Writes nothing to Firestore.
+// Log is counts and problem codes/ids. Never titles, notes, or task content.
+function migrationDryRun() {
+  var state = getTeamState_();
+  var plan = TMBridge.planMigration(state, {});
+  var lines = TMBridge.migrationLogLines(plan);
+  var i;
+  for (i = 0; i < lines.length; i++) Logger.log(lines[i]);
+  var record = {
+    hash: hashState_(state),
+    counts: plan.counts,
+    problems: plan.problems,
+    at: new Date().toISOString(),
+  };
+  PropertiesService.getScriptProperties().setProperty("MIGRATION_DRYRUN", JSON.stringify(record));
+  Logger.log("stored dry-run");
+}
+
+// Run menu. Create-only copies into teams/main/tasks/{id}. Does not set
+// MIGRATION_DONE and does not modify teams/main.state.
+function migrationRun() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("MIGRATION_DONE") === "true") {
+    Logger.log("refused migration_done");
+    return;
+  }
+  var raw = props.getProperty("MIGRATION_DRYRUN");
+  var dry = null;
+  if (raw) {
+    try { dry = JSON.parse(raw); } catch (e) { dry = null; }
+  }
+  if (!dry || !dry.hash) {
+    Logger.log("refused missing_dry_run");
+    return;
+  }
+  var state = getTeamState_();
+  var hash = hashState_(state);
+  if (hash !== dry.hash) {
+    Logger.log("refused hash_mismatch");
+    return;
+  }
+  var existingDocs = listTasks_();
+  var ids = [];
+  var i;
+  for (i = 0; i < existingDocs.length; i++) {
+    if (existingDocs[i] && existingDocs[i].id) ids.push(existingDocs[i].id);
+  }
+  var plan = TMBridge.planMigration(state, {});
+  var decision = TMBridge.evaluateMigrationRun({
+    migrationDone: props.getProperty("MIGRATION_DONE"),
+    dryRun: dry,
+    currentHash: hash,
+    existingIds: ids,
+    docs: plan.docs,
+  });
+  if (!decision.ok) {
+    Logger.log("refused " + decision.error);
+    return;
+  }
+  var written = 0;
+  var skipped = decision.skipped;
+  var failed = 0;
+  var batch = [];
+  var flush = function () {
+    var n;
+    if (!batch.length) return;
+    try {
+      firestoreCommit_(batch);
+      written += batch.length;
+    } catch (err) {
+      for (n = 0; n < batch.length; n++) {
+        try {
+          firestoreCommit_([batch[n]]);
+          written++;
+        } catch (e2) {
+          if (e2 && e2.code === "conflict") skipped++;
+          else failed++;
+        }
+      }
+    }
+    batch = [];
+  };
+  for (i = 0; i < decision.toWrite.length; i++) {
+    batch.push(taskCreateWrite_(decision.toWrite[i]));
+    if (batch.length >= 400) flush();
+  }
+  flush();
+  props.setProperty("MIGRATION_RESULT", JSON.stringify({
+    at: new Date().toISOString(),
+    written: written,
+    skipped: skipped,
+    failed: failed,
+    hash: hash,
+  }));
+  Logger.log("written=" + written + " skipped=" + skipped + " failed=" + failed);
+}
+
 function appendAudit_(rec) {
   // Do not log titles, notes, emails, tokens, or the service-account JSON.
   var id = "a_" + rec.at + "_" + TMBridge.idempotencyId(rec.source, rec.idempotencyKey);
