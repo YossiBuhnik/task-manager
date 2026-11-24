@@ -73,7 +73,7 @@ Today it writes **directly to Firestore** with a service account. Its Apps Scrip
 
 Migration is not closed, and `MIGRATION_DONE` stays unset, until all of these are true:
 
-- (a) The `applyUpdates` / `updates-*.json` path is frozen, not deleted (Yossi, 24/11/2026). It keeps running until `MIGRATION_DONE`, then logs and skips. Files stay as a backup for 2 weeks from the migration date. Deletion after that only with Yossi's explicit approval at that time.
+- (a) The `applyUpdates` / `updates-*.json` path is frozen, not deleted (Yossi, 24/11/2026). The switch is `APPLY_FROZEN` in Joe's `tasks_app.py` (outside this repo). It is turned on at migration step 6 (freeze writers) and stays on. Files stay in place as a backup for 2 weeks from the migration date. Deletion only with Yossi's explicit approval then.
 - (b) The Drive queue is paused, or it is drained only through this bridge.
 - (c) `calendar-agent` is converted onto this bridge with its own token. Its direct service-account writes and its `Code.gs` triggers are removed.
 - (d) `tasks_app.py` is converted onto this bridge.
