@@ -227,8 +227,16 @@ const sampleTask = (over = {}) => TM.normalizeTask({
 }, sampleTeam, YOSSI);
 
 async function main() {
-  console.log("default flag is legacy blob (safe until PR3)");
-  is("FLAGS.readLegacyBlob defaults true", TM.FLAGS.readLegacyBlob === true);
+  console.log("app reads the task collection");
+  const cfgBox = { window: {}, location: { hostname: "yossibuhnik.github.io" } };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "..", "firebase-config.js"), "utf8"), cfgBox, { filename: "firebase-config.js" });
+  eq("firebase-config readLegacyBlob", cfgBox.window.TM_FLAGS.readLegacyBlob, false);
+  const appBox = { window: { TM_FLAGS: { readLegacyBlob: false } }, console };
+  vm.runInNewContext(src, appBox, { filename: "data.js" });
+  eq("app data layer follows the flag", appBox.window.TM.FLAGS.readLegacyBlob, false);
+
+  console.log("rollback flag still selects the blob");
+  is("explicit readLegacyBlob true", TM.FLAGS.readLegacyBlob === true);
 
   console.log("assembleData: fallback flag vs collection");
   const blobTeam = {

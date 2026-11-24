@@ -120,7 +120,7 @@ Branches: `ido/contract`, `ido/data-layer`, `ido/bot-writes`, `ido/migrate`, `cl
 ## 6. Decisions (23/11/2026)
 
 1. **Bot writes** go through the **existing Apps Script bridge**, extended with a **separate token per bot**. No Cloud Functions and no Blaze plan. The detailed endpoint spec is `BOT-WRITE-SPEC.md` on branch `ido/bot-writes-spec` (lands with PR2, not this PR).
-2. **Known writers** that today write Firestore directly must be **frozen or converted before migration**: `tasks_app.py` (Joe's box, `/home/box/tools/tasks_app.py`; `export` / `apply` with `markDone` / `setDue` / `addTasks`; uses secret `FIREBASE_TASKS_SA_JSON` — never read or print it) and **`calendar-agent`**, which writes **directly to Firestore with a service account**. Its Apps Script is `Code.gs` in the calendar-agent folder (not in this repo; the folder is gitignored), two-way with triggers. Converting both to the single bridge is PR2 work; pausing them (including `calendar-agent`'s `Code.gs` triggers) is a prerequisite for the PR3 window.
+2. **Known writers** that today write Firestore directly must be **frozen or converted before migration**: `tasks_app.py` (Joe's box, `/home/box/tools/tasks_app.py`; `export` / `apply` with `markDone` / `setDue` / `addTasks`; uses secret `FIREBASE_TASKS_SA_JSON` — never read or print it) and the legacy Apps Script «גשר משימות». Its triggers were deleted for the freeze. Only `exportTasks` is restored afterwards.
 3. **Private areas** are **enforced in Firestore rules by `owner`**. Task documents carry denormalized `visibility` / `owner`. Soft UI-only privacy is not enough after the split.
 4. Bot-created tasks enter the **«ממתין לסקירה»** queue (`awaitingReview: true`) and move to the board only after approval. **Only Yossi and Joe may approve a task out of the queue.** A bot may edit **its own** task while `awaitingReview` is still true (needed for Michal's live mail corrections). **Michal's mail-derived updates arrive live all day**, not only at end of day: the write point must accept **single-task writes at any time**, and they must be **idempotent**. Phone top-urgent shows **approved tasks only**.
 5. **Only Yossi and Joe** may mark done or edit a task inserted by another bot. The only human Google account is `yossib@tskeng-il.co.il` (Yossi); bots have no Google accounts, and Joe has no Google login. **Yossi** is enforced in Firestore rules by that email. **Joe** is a bridge token, and "Joe may approve / markDone / edit" is enforced in the bridge, not in rules. Service-account writes bypass rules and must go through the bridge (see §7).
@@ -133,7 +133,7 @@ Client writes never replace the whole team `state` blob once PR1 lands (`setDoc`
 
 ## 7. Write path decision
 
-**Keep a single Apps Script bridge as the write point for all bots**, including `calendar-agent` and `tasks_app.py`. Bots do not write to Firestore directly — not even with a service account.
+**Keep a single Apps Script bridge as the write point for all bots**, including `tasks_app.py`. Bots do not write to Firestore directly — not even with a service account. «גשר משימות» is not a second write path: its triggers were deleted for the freeze, and only `exportTasks` is restored afterwards.
 
 Reasons:
 
@@ -156,8 +156,8 @@ Script name (repo is flat): `migrate-tasks.js`.
 1. Freeze every bot writer for the window, explicitly including:
    - the Drive queue `task-manager-updates`;
    - `tasks_app.py` (`apply`; export/backup may remain);
-   - **`calendar-agent` as a direct Firestore writer** (service account) **and its `Code.gs` triggers**, which must be paused so two-way calendar sync cannot write during migration.
-   PR2 converts both `calendar-agent` and `tasks_app.py` onto the single bridge (own token and source key; no leftover direct writes) before this window.
+   - the legacy Apps Script «גשר משימות». Its triggers were deleted for the freeze. Only `exportTasks` is restored afterwards.
+   PR2 converts `tasks_app.py` onto the single bridge (own token; no leftover direct writes) before this window.
 2. Backup: local JSON export + Drive copy, with a recorded SHA-256 checksum. No deletion.
 3. Dry-run first: counts, missing fields, `duration` → range mapping, tasks missing `createdAt`. No Firebase writes in dry-run.
 4. Write `teams/main/tasks/{id}` preserving `t_…` ids. Do **not** delete or thin the legacy `state` blob.

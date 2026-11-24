@@ -1,18 +1,17 @@
-// DRAFT — NOT DEPLOYED.
-// Deploy only after Yossi approves. Until then the live Firebase project
-// is unchanged.
+// Paste this file into Firebase Console → Firestore → Rules → Publish.
+// It is not live until that Publish. The legacy teams/main.state blob
+// stays; these rules do not delete it.
 //
 // The only human Google account is yossib@tskeng-il.co.il (Yossi).
 // Bots have no Google accounts. Joe has no Google login; he acts through
 // a bridge token. Service-account / Admin SDK writes bypass these rules
 // entirely, so they are not a permitted bot path: all bot writes
-// (including calendar-agent and tasks_app.py) must go through the Apps
+// (including tasks_app.py; the legacy script is «גשר משימות») must go through the Apps
 // Script bridge, which enforces per-bot tokens, authorization (including
 // Joe approve / markDone), private-area policy, idempotency, and audit.
 //
-// Assumes the PR1 task schema (including durationMin/durationMax,
-// source, awaitingReview, visibility, owner). Deploy after those
-// documents exist (practically after PR1 / PR3), not before.
+// Task documents use durationMin/durationMax, source, awaitingReview,
+// visibility, and owner. The migration into teams/main/tasks has run.
 
 rules_version = '2';
 service cloud.firestore {

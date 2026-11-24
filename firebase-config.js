@@ -20,11 +20,10 @@ window.FIREBASE_CONFIG = {
 // The Firestore document where the shared team data lives.
 // Default: /teams/main — one shared doc, simple for small teams.
 window.FIREBASE_TEAM_DOC = { collection: "teams", id: "main" };
-// After PR1, areas/clients/projects live on that team doc; tasks will live at
-// teams/main/tasks/{id} once this flag is false. Leave readLegacyBlob true
-// until the PR3 migration has run and Yossi has approved (the app stays
-// fully working on the legacy blob until then). Rollback = set it back to true.
-window.TM_FLAGS = { readLegacyBlob: true };
+// Areas, clients, and projects stay on the team doc. Tasks are read and
+// written only at teams/main/tasks/{id}. The legacy state blob stays in
+// Firestore and is not deleted. Rollback = set this back to true.
+window.TM_FLAGS = { readLegacyBlob: false };
 
 // Dev preview: when served from this computer (localhost, or its address on the
 // local Wi-Fi so a phone can preview too), never touch the real team data —

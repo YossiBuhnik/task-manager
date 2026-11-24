@@ -52,14 +52,9 @@ Conversion (after an approved migration, on Joe's box, not in this repo):
 
 The client hook `on_queue_fallback` may enqueue a Drive file in `task-manager-updates` if a live POST is exhausted; the 5-minute `drainDriveQueue` trigger will pick it up.
 
-## Converting `calendar-agent`
+## «גשר משימות»
 
-Today it writes **directly to Firestore** with a service account. Its Apps Script is `Code.gs` in the gitignored `calendar-agent/` folder, two-way with triggers.
-
-1. Stop all direct service-account writes.
-2. Route creates / updates / due changes through this bridge with **its own token** and source `calendar-agent`. Use the calendar event id in `idempotencyKey`.
-3. During the migration window, **pause its `Code.gs` triggers**. Leave them paused until Yossi approves the unfreeze onto the bridge only.
-4. After cut-over it has no SA write of its own; only this bridge holds the service account.
+The legacy Apps Script is «גשר משימות». Its triggers were deleted for the freeze. Only `exportTasks` is restored afterwards.
 
 ## Shaked
 
@@ -75,7 +70,7 @@ Migration is not closed, and `MIGRATION_DONE` stays unset, until all of these ar
 
 - (a) The `applyUpdates` / `updates-*.json` path is frozen, not deleted (Yossi, 24/11/2026). The switch is `APPLY_FROZEN` in Joe's `tasks_app.py` (outside this repo). It is turned on at migration step 6 (freeze writers) and stays on. Files stay in place as a backup for 2 weeks from the migration date. Deletion only with Yossi's explicit approval then.
 - (b) The Drive queue is paused, or it is drained only through this bridge.
-- (c) `calendar-agent` is converted onto this bridge with its own token. Its direct service-account writes and its `Code.gs` triggers are removed.
+- (c) The legacy Apps Script «גשר משימות» had its triggers deleted for the freeze. Only `exportTasks` is restored afterwards.
 - (d) `tasks_app.py` is converted onto this bridge.
 
 Until then there is not a single write path.
@@ -104,7 +99,20 @@ Until then there is not a single write path.
 הפעם מעדכנים גם את Code.gs (הפונקציות `migrationDryRun` ו-`migrationRun`), לא רק את Logic.gs. אחרי ההדבקה עושים New version כמו במדריך למעלה.
 
 1. Dry run: בתפריט Run בוחרים `migrationDryRun`. ב-Execution log מופיעות רק ספירות וקודי בעיה (למשל `missing-id` ומזהה), בלי כותרות ובלי הערות. נוצר Script Property בשם `MIGRATION_DRYRUN` עם hash של הבלוג והספירות. אין כתיבה ל-Firestore.
-2. Freeze: מקפיאים כותבים לפני הריצה, לפי שלב 6. `APPLY_FROZEN` ב-`tasks_app.py`, תור ה-Drive, וטריגרים של calendar-agent. אם מישהו כותב לבלוג אחרי ה-dry run, הריצה תיעצר.
+2. Freeze: מקפיאים כותבים לפני הריצה, לפי שלב 6. `APPLY_FROZEN` ב-`tasks_app.py` ותור ה-Drive. הטריגרים של «גשר משימות» נמחקו. אחרי ההקפאה מחזירים רק את `exportTasks`. אם מישהו כותב לבלוג אחרי ה-dry run, הריצה תיעצר.
 3. Run: בתפריט Run בוחרים `migrationRun`. אם הלוג אומר `missing_dry_run` או `hash_mismatch`, מריצים שוב dry run ואז שוב את הריצה. אם הלוג אומר `migration_done`, ההסבה כבר סומנה ולא רצה שוב.
 
 הצלחה בלוג: שורה `written=… skipped=… failed=0`. נוצר `MIGRATION_RESULT` עם אותם מספרים וה-hash. מסמך נכתב רק אם אין עדיין מסמך עם אותו id (קיים נספר ב-skipped). `teams/main.state` לא משתנה. `MIGRATION_DONE` לא מופעל לבד. אחרי בדיקה ידנית מגדירים אותו ל-`true`.
+
+## פרסום חוקי Firestore - מדריך ליוסי
+
+הקובץ הוא `firestore.rules` בריפו. הוא עדיין לא חי בפרויקט עד שלוחצים Publish.
+
+לפני Publish: ההסבה כבר רצה ו-`MIGRATION_DONE` הוא `true`. מפרסמים את החוקים לפני שהאפליקציה עם `readLegacyBlob: false` נטענת אצל המשתמשים. החוקים שחיים עכשיו מאפשרים רק את המסמך `teams/main`, לא את האוסף `teams/main/tasks`. בלי החוקים החדשים האפליקציה לא תקרא משימות. הגשר לא נחסם: הוא כותב עם חשבון השירות, והחוקים לא חלים עליו. לא מוחקים את הבלוג.
+
+1. נכנסים ל-Firebase Console → Firestore Database → הלשונית Rules.
+2. פותחים https://github.com/YossiBuhnik/task-manager/blob/main/firestore.rules ולוחצים Copy raw file.
+3. מוחקים את מה שיש בתיבה, מדביקים את כל הקובץ (כולל שורות ההערה), ולוחצים Publish.
+4. בדיקה: נכנסים לאפליקציה ורואים את המשימות. אם מופיע permission denied, עוצרים ולא ממשיכים.
+
+ביטול: באותה לשונית Rules פותחים את ההיסטוריה, בוחרים את הגרסה הקודמת, ולוחצים Publish. אם האפליקציה כבר על הדגל החדש והמסך ריק, מחזירים ב-`firebase-config.js` את `readLegacyBlob` ל-`true` ומעלים שוב. הבלוג נשאר במקום.
