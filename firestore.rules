@@ -40,12 +40,15 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email in taskAdmins();
     }
 
+    // Missing visibility/owner must not error. Migration copies them only
+    // when the old task had them. Unset visibility is shared (matches canSee).
     function isPrivate(data) {
-      return data.visibility == "private";
+      return data.get("visibility", "shared") == "private";
     }
 
     function isOwner(data) {
-      return data.owner != null && data.owner == request.auth.token.email;
+      return data.get("owner", null) != null
+        && data.get("owner", null) == request.auth.token.email;
     }
 
     // Private items are readable only by their owner (matches TM.canSee).
@@ -55,13 +58,13 @@ service cloud.firestore {
     }
 
     function isBotSource(data) {
-      return data.source in ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked", "calendar-agent"];
+      return data.get("source", "") in ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked", "calendar-agent"];
     }
 
     // Client (signed-in) creates may only use manual / yossi sources.
     // Bot sources are written through the Apps Script endpoint (admin / SA).
     function clientMayWriteSource(data) {
-      return data.source in ["", "yossi"];
+      return data.get("source", "") in ["", "yossi"];
     }
 
     function isIsoDateOrEmpty(s) {
@@ -87,10 +90,10 @@ service cloud.firestore {
         && data.areaId is string
         && isIsoDateOrEmpty(data.due)
         && validDuration(data)
-        && data.source in ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked", "calendar-agent", "yossi", ""]
+        && data.get("source", "") in ["michal-mail", "ron-site", "noga-tour", "joe", "ido", "shaked", "calendar-agent", "yossi", ""]
         && data.awaitingReview is bool
-        && (!("visibility" in data) || data.visibility in ["shared", "private"])
-        && (!("owner" in data) || data.owner == null || data.owner is string);
+        && data.get("visibility", "shared") in ["shared", "private"]
+        && (data.get("owner", null) == null || data.get("owner", null) is string);
     }
 
     // Bot-inserted tasks: only signed-in Yossi may edit or mark done
@@ -103,11 +106,11 @@ service cloud.firestore {
     function visibilityUnchanged() {
       let before = resource.data;
       let after = request.resource.data;
-      return after.visibility == before.visibility
-        && after.owner == before.owner
-        && after.source == before.source
-        && after.createdBy == before.createdBy
-        && after.id == before.id;
+      return after.get("visibility", "shared") == before.get("visibility", "shared")
+        && after.get("owner", null) == before.get("owner", null)
+        && after.get("source", "") == before.get("source", "")
+        && after.get("createdBy", "") == before.get("createdBy", "")
+        && after.get("id", "") == before.get("id", "");
     }
 
     // corrections is append-only via the bridge (SA bypasses rules).
