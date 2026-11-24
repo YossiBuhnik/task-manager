@@ -462,6 +462,104 @@ const adminIds = adminList.body.tasks.map((t) => t.id);
 is("admin sees private task", adminIds.indexOf("t_priv_task") !== -1);
 is("admin sees task in private area", adminIds.indexOf("t_priv_area") !== -1);
 
+console.log("corrections");
+const corr = handler({
+  tokenMap: Object.assign({}, TOKENS, { "tok-yossi": { source: "yossi", name: "yossi" } }),
+});
+corr.deps.tasks["t_bot"] = {
+  doc: { id: "t_bot", title: "From mail", source: "michal-mail", createdBy: "michal-mail", awaitingReview: true, status: "todo", due: "2026-11-01", version: 1 },
+  updateTime: "ts-1",
+};
+eq("reason required", corr.handle(req({
+  token: "tok-joe", source: "joe", op: "updateTask", idempotencyKey: "joe:no-reason",
+  payload: { id: "t_bot", title: "Changed" },
+})).body.error, "correctionReason required");
+eq("title unchanged without reason", corr.deps.tasks["t_bot"].doc.title, "From mail");
+eq("bad kind", corr.handle(req({
+  token: "tok-joe", source: "joe", op: "setDue", idempotencyKey: "joe:bad-kind",
+  payload: { taskId: "t_bot", due: "2026-12-01", correctionReason: { kind: "nope", reason: "because" } },
+})).body.error, "kind");
+eq("reason too long", corr.handle(req({
+  token: "tok-joe", source: "joe", op: "updateTask", idempotencyKey: "joe:long",
+  payload: { id: "t_bot", title: "X", correctionReason: { kind: "wording", reason: "x".repeat(501) } },
+})).body.error, "reason");
+eq("protected corrections on add", corr.handle(req({
+  op: "addTask", idempotencyKey: "michal:corr-add",
+  payload: { title: "N", corrections: [{ reason: "no" }] },
+})).body.error, "protected field");
+eq("protected corrections on update", corr.handle(req({
+  token: "tok-joe", source: "joe", op: "updateTask", idempotencyKey: "joe:corr-field",
+  payload: { id: "t_bot", title: "X", corrections: [] },
+})).body.error, "protected field");
+const fixed = corr.handle(req({
+  token: "tok-yossi", source: "yossi", op: "updateTask", idempotencyKey: "yossi:fix1",
+  payload: { taskId: "t_bot", title: "  Better title", correctionReason: { kind: "wording", reason: "  clearer  " } },
+}));
+is("admin update with reason ok", fixed.body.ok);
+eq("title applied", corr.deps.tasks["t_bot"].doc.title, "  Better title");
+eq("reason trimmed", corr.deps.tasks["t_bot"].doc.corrections[0].reason, "clearer");
+eq("kind stored", corr.deps.tasks["t_bot"].doc.corrections[0].kind, "wording");
+eq("by yossi", corr.deps.tasks["t_bot"].doc.corrections[0].by, "yossi");
+eq("before title", corr.deps.tasks["t_bot"].doc.corrections[0].before.title, "From mail");
+eq("after title", corr.deps.tasks["t_bot"].doc.corrections[0].after.title, "  Better title");
+const audit = corr.deps.audit[corr.deps.audit.length - 1];
+is("audit has no reason", !("reason" in audit) && !("before" in audit) && !("after" in audit));
+
+corr.deps.tasks["t_bot"].doc.awaitingReview = false;
+is("after approval reason optional", corr.handle(req({
+  token: "tok-joe", source: "joe", op: "setDue", idempotencyKey: "joe:due-optional",
+  payload: { id: "t_bot", due: "2026-12-02" },
+})).body.ok);
+eq("optional setDue applied", corr.deps.tasks["t_bot"].doc.due, "2026-12-02");
+eq("no extra correction", corr.deps.tasks["t_bot"].doc.corrections.length, 1);
+is("optional reason still recorded", corr.handle(req({
+  token: "tok-joe", source: "joe", op: "setDue", idempotencyKey: "joe:due-noted",
+  payload: { id: "t_bot", due: "2026-12-03", correctionReason: { kind: "date", reason: "moved" } },
+})).body.ok);
+eq("second correction stored", corr.deps.tasks["t_bot"].doc.corrections.length, 2);
+
+const capped = [];
+for (let i = 0; i < 20; i++) capped.push({ at: "2020-01-" + String(i + 1).padStart(2, "0"), reason: "old" + i, kind: "other", by: "joe", op: "updateTask" });
+corr.deps.tasks["t_cap"] = {
+  doc: { id: "t_cap", title: "cap", source: "ron-site", awaitingReview: true, status: "todo", due: "", version: 1, corrections: capped },
+  updateTime: "ts-1",
+};
+is("cap write ok", corr.handle(req({
+  token: "tok-joe", source: "joe", op: "updateTask", idempotencyKey: "joe:cap",
+  payload: { id: "t_cap", title: "capped", correctionReason: { kind: "other", reason: "newest" } },
+})).body.ok);
+eq("cap stays 20", corr.deps.tasks["t_cap"].doc.corrections.length, 20);
+eq("oldest dropped", corr.deps.tasks["t_cap"].doc.corrections[0].reason, "old1");
+eq("newest kept", corr.deps.tasks["t_cap"].doc.corrections[19].reason, "newest");
+
+corr.deps.tasks["t_ron_c"] = {
+  doc: { id: "t_ron_c", title: "ron", source: "ron-site", awaitingReview: false, status: "todo", corrections: [{ at: "2026-11-02T00:00:00.000Z", by: "joe", op: "setDue", fields: { due: "2026-12-01" }, before: {}, after: {}, reason: "ron", kind: "date" }] },
+  updateTime: "ts",
+};
+const ownList = corr.handle(req({
+  op: "listCorrections", idempotencyKey: "michal:lc",
+  payload: { source: "michal-mail", limit: 1 },
+}));
+eq("listCorrections own source", ownList.body.corrections.map((c) => c.taskId), ["t_bot"]);
+eq("listCorrections has cursor", typeof ownList.body.nextCursor, "string");
+const page2c = corr.handle(req({
+  op: "listCorrections", idempotencyKey: "michal:lc2",
+  payload: { source: "michal-mail", limit: 1, cursor: ownList.body.nextCursor },
+}));
+eq("listCorrections second page", page2c.body.corrections.length, 1);
+eq("listCorrections pages differ", page2c.body.corrections[0].reason !== ownList.body.corrections[0].reason, true);
+eq("non-admin other source", corr.handle(req({
+  op: "listCorrections", idempotencyKey: "michal:lc-ron", payload: { source: "ron-site" },
+})).http, 403);
+const joeList = corr.handle(req({
+  token: "tok-joe", source: "joe", op: "listCorrections", idempotencyKey: "joe:lc",
+  payload: { source: "ron-site", since: "2026-01-01", limit: 10 },
+}));
+eq("admin lists other source", joeList.body.corrections.map((c) => c.taskId), ["t_ron_c"]);
+const listed = corr.handle(req({ op: "listTasks", idempotencyKey: "michal:lc-tasks", payload: { limit: 50 } }));
+const listedBot = listed.body.tasks.filter((t) => t.id === "t_bot")[0];
+eq("listTasks returns corrections", listedBot.corrections.length, 2);
+
 console.log("");
 console.log(passed + " passed, " + failed + " failed");
 process.exit(failed ? 1 : 0);

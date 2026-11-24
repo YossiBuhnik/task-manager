@@ -94,6 +94,22 @@ A non-admin token does not receive tasks with `visibility: "private"`, or tasks 
 { "ok": true, "code": "ok", "nextCursor": null, "tasks": [{ "id": "t_1", "title": "…", "status": "todo", "due": "2026-11-23", "durationMin": 60, "durationMax": 90, "durationUnit": "hour", "areaId": "area_office", "cityId": "c_1", "projectId": "p_1", "area": "area_office", "project": "p_1", "awaitingReview": true, "proposals": 1, "proposalsPending": 1, "proposalList": [{ "id": "prop_…", "kind": "edit", "by": "michal-mail", "at": "2026-11-23T10:00:00.000Z", "state": "pending" }] }] }
 ```
 
+### Corrections
+
+An admin (`joe` or `yossi`) `updateTask` or `setDue` on a **bot-created** task with `awaitingReview: true` must include `correctionReason: { kind, reason }`. Otherwise the body `code` is `invalid` and `error` is `correctionReason required`. `kind` is `date | owner | wording | scope | duplicate | other`. `reason` is required free text, trimmed, at most 500 characters. The bridge appends to `corrections` (protected, clients cannot write it; cap 20, oldest dropped). Entry: `{ at, by, op, fields, before, after, reason, kind }`. After approval the reason is optional: supplied means an entry is stored; omitted means no entry and no error. The audit log does not store `reason`, `before`, or `after`.
+
+The app must send edits of a pending bot task through this bridge, not a direct Firestore write. That direct path is unchanged in this change.
+
+`listCorrections` is a read. Entries are for tasks whose `source` is the requested source, ordered by `at` ascending (then task id). `since` is an inclusive lower bound on `at`. Default `limit` 50, max 200. A non-admin token may request only its own source. `joe` / `yossi` may pass any source. `listTasks` rows include `corrections`.
+
+```json
+{ "token": "<joe>", "op": "updateTask", "source": "joe", "idempotencyKey": "joe:t_1:fix", "payload": { "taskId": "t_1", "title": "Better", "correctionReason": { "kind": "wording", "reason": "clearer" } } }
+```
+
+```json
+{ "token": "<michal>", "op": "listCorrections", "source": "michal-mail", "payload": { "source": "michal-mail", "since": "2026-11-01T00:00:00.000Z", "limit": 50 } }
+```
+
 `listRefs` is a read of the board's areas, cities, and projects. They still live on the `teams/main` state blob (not a separate collection). The bridge reads that blob and does not write it. Any valid token. Same `403 migration_pending`. Only `id`, `name`, and parent ids are returned. `joe` / `yossi` see private items; every other source omits private areas and the cities and projects under them, and omits private projects.
 
 ```json
