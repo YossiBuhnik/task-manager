@@ -412,6 +412,29 @@ eq("admin sees private area", joeRefs.body.areas.map((a) => a.id).sort(), ["area
 eq("admin sees private project", joeRefs.body.projects.map((p) => p.id).sort(), ["p_priv", "p_pub", "p_under"]);
 eq("listRefs migration pending", blocked.handle(req({ op: "listRefs", payload: {} })).body.code, "migration_pending");
 
+const pageIds = ["t_abc", "t_ABD", "t-x", "T_1", "t_9"];
+const paged = handler();
+pageIds.forEach((id) => {
+  paged.deps.tasks[id] = { doc: { id: id, title: id, status: "todo", due: "", awaitingReview: false }, updateTime: "ts" };
+});
+const seen = [];
+let cursor = null;
+let pages = 0;
+do {
+  const page = paged.handle(req({
+    op: "listTasks",
+    idempotencyKey: "michal:page:" + String(cursor || "start"),
+    payload: { limit: 2, cursor: cursor },
+  }));
+  eq("page " + pages + " size", page.body.tasks.length, Math.min(2, pageIds.length - seen.length));
+  page.body.tasks.forEach((t) => seen.push(t.id));
+  cursor = page.body.nextCursor;
+  pages++;
+} while (cursor && pages < 10);
+const codeUnit = pageIds.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+eq("pagination visits each id once", seen, codeUnit);
+eq("pagination finished", cursor, null);
+
 is("calendar-agent is a bot source", TMBridge.BOT_SOURCES.indexOf("calendar-agent") !== -1);
 is("calendar-agent addTask ok", extra.handle(req({
   token: "tok-cal", source: "calendar-agent", op: "addTask", idempotencyKey: "cal:add1",

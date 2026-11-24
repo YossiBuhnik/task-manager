@@ -423,7 +423,11 @@
       }
       rows.push(d);
     }
-    rows.sort(function (a, b) { return String(a.id).localeCompare(String(b.id)); });
+    rows.sort(function (a, b) {
+      var x = String(a.id);
+      var y = String(b.id);
+      return x < y ? -1 : x > y ? 1 : 0;
+    });
     if (query.cursor) rows = rows.filter(function (d) { return String(d.id) > String(query.cursor); });
     var page = rows.slice(0, limit);
     return {
