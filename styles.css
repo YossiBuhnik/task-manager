@@ -2213,3 +2213,10 @@ html[data-theme="dark"] .todo-proj, html[data-theme="dark"] .area-pill { backgro
 .tb-grid.is-wide .tb-aside { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .ttable .tt-sub { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 html[data-theme="dark"] .dur-preset.is-on { color: var(--accent); }
+
+/* waiting on others */
+.waiting-on { color: var(--st-waiting); font-weight: 600; }
+.wait-side { display: inline-flex; align-items: center; gap: 8px; }
+.wait-side .due { font-size: 12px; }
+.wait-got { padding: 2px 8px; font-size: 12px; }
+@media (max-width: 640px) { .wait-side { flex-wrap: wrap; justify-content: flex-end; max-width: 55vw; } }

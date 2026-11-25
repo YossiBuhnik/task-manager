@@ -597,6 +597,8 @@ function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onAppro
     durationMax: Number.isInteger(task?.durationMax) ? task.durationMax : (task?.duration ?? 60),
     participants: task?.participants || "",
     assignee: task?.assignee || "",
+    waitingOn: window.waitingName ? window.waitingName(task) : (typeof task?.waitingOn === "string" ? task.waitingOn : ""),
+    waitingFollowUp: task?.waitingFollowUp || "",
     priority: task?.priority || "mid",
     notes: task?.notes || "",
     recur: task?.recur || null,
@@ -630,6 +632,8 @@ function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onAppro
       ...t,
       title: t.title.trim(),
       participants: t.participants.trim(),
+      waitingOn: t.waitingOn.trim(),
+      waitingFollowUp: t.waitingOn.trim() ? t.waitingFollowUp : "",
       duration: t.durationMax,
       emails: e ? [...t.emails, e] : t.emails,
     });
@@ -712,6 +716,18 @@ function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onAppro
         <label>אחראי</label>
         <input value={t.assignee} onChange={(e) => set("assignee", e.target.value)}
           placeholder="לדוגמה: דנה לוי" />
+      </div>
+      <div className="field-row">
+        <div className="field">
+          <label>ממתין ל־ <span style={{ color: "var(--ink-3)", fontWeight: 400 }}>(מי צריך להחזיר לך משהו)</span></label>
+          <input value={t.waitingOn} onChange={(e) => set("waitingOn", e.target.value)}
+            placeholder="לדוגמה: מחלקת תנועה בעירייה" />
+        </div>
+        <div className="field">
+          <label>תאריך מעקב</label>
+          <input type="date" value={t.waitingFollowUp} disabled={!t.waitingOn.trim()}
+            onChange={(e) => set("waitingFollowUp", e.target.value)} />
+        </div>
       </div>
       <div className="field">
         <label>משתתפים נוספים <span style={{ color: "var(--ink-3)", fontWeight: 400 }}>(כתובות אימייל מופרדות בפסיק — יצורפו כהזמנה ביומן)</span></label>

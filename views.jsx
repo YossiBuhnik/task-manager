@@ -156,6 +156,30 @@ const isBoardRow = (r) => !r.task.awaitingReview;
 
 // "Waiting on others": approved open tasks with waitingOn set, or status "waiting".
 // Review-queue rows stay out. Assignee and bot source do not count.
+// Who the task is waiting on, as text (waitingOn may be a string, list or object).
+function waitingName(task) {
+  const w = task && task.waitingOn;
+  if (!w) return "";
+  if (Array.isArray(w)) return w.map(x => String(x || "").trim()).filter(Boolean).join(", ");
+  if (typeof w === "object") return String(w.name || w.person || w.party || "");
+  return String(w).trim();
+}
+
+// Follow-up of a waiting task: { daysUntil, label } or null.
+function followUpOf(task) {
+  if (!task || !task.waitingFollowUp || !waitingName(task)) return null;
+  const n = window.TM.daysUntil(task.waitingFollowUp);
+  if (n == null) return null;
+  return { daysUntil: n, label: boardDue({ due: task.waitingFollowUp }) };
+}
+
+function FollowUpText({ task }) {
+  const f = followUpOf(task);
+  if (!f) return null;
+  const cls = f.daysUntil < 0 ? "is-overdue" : f.daysUntil <= 1 ? "is-soon" : "";
+  return <span className={"due " + cls}>מעקב · {f.label}</span>;
+}
+
 function isWaitingRow(r) {
   return isOpenRow(r) && isBoardRow(r) && window.TM.isWaitingOnOthers(r.task);
 }
@@ -236,6 +260,7 @@ function TaskCard({ row, onOpen, compact, showDuration, onToggleDone, userEmail 
         {meta.map((m, i) => <span key={i}>{m}</span>)}
         <DueText task={task} urg={urg} />
         {task.assignee && <span className="who">{task.assignee}</span>}
+        {waitingName(task) && <span className="waiting-on">ממתין ל{waitingName(task)}</span>}
         {showDuration && window.formatDurationHe(task) && <span className="dur">{window.formatDurationHe(task)}</span>}
       </div>
     </div>
@@ -442,7 +467,7 @@ function RowList({ title, rows, empty, onOpen, onToggleDone, userEmail, render }
       {rows.length === 0 ? <div className="panel-empty">{empty}</div> : (
         <ul>
           {rows.map(r => (
-            <li key={r.task.id}>
+            <li key={r.task.id + (r.kind || "")}>
               <div role="button" tabIndex={0}
                 className={"rl-row tone-" + window.areaTone(r.area.id)}
                 onClick={() => onOpen(r)}
@@ -591,9 +616,16 @@ function TaskBoard({ data, actions, search, userEmail, userName }) {
   const overdue = urgent.filter(r => r.urg.bucket === "overdue").length;
   const doing = open.filter(TILE_FILTERS.doing.test);
   const waiting = board.filter(r => isWaitingRow(r, me));
-  const reminders = open
+  const dueSoon = open
     .filter(r => r.task.due && r.urg.daysUntil >= 0 && r.urg.daysUntil <= 7)
-    .sort((a, b) => (a.task.due + (a.task.time || "")).localeCompare(b.task.due + (b.task.time || "")));
+    .map(r => ({ ...r, kind: "due", at: r.task.due + (r.task.time || "") }));
+  // Follow-ups on waiting tasks: due within a week, or already late.
+  const followUps = waiting
+    .filter(r => { const f = followUpOf(r.task); return f && f.daysUntil <= 7; })
+    .map(r => ({ ...r, kind: "follow", at: r.task.waitingFollowUp }));
+  const reminders = [...followUps, ...dueSoon].sort((a, b) => a.at.localeCompare(b.at));
+  const clearWaiting = (r) =>
+    actions.updateTask(r.city.id, r.project.id, r.task.id, { waitingOn: "", waitingFollowUp: "" });
 
   const boardShown = !tile ? board
     : tile === "waiting" ? waiting
@@ -667,9 +699,16 @@ function TaskBoard({ data, actions, search, userEmail, userName }) {
         <aside className="tb-aside">
           <RowList title="תזכורות קרובות" rows={reminders.slice(0, 8)} empty="אין תזכורות בשבוע הקרוב"
             onOpen={openRow} onToggleDone={toggleDone} userEmail={userEmail}
-            render={(r) => <DueText task={r.task} urg={r.urg} />} />
+            render={(r) => r.kind === "follow" ? <FollowUpText task={r.task} /> : <DueText task={r.task} urg={r.urg} />} />
           <RowList title="ממתין לאחרים" rows={waiting.slice(0, 8)} empty="אין משימות שממתינות לאחרים"
-            onOpen={openRow} render={(r) => <span className="who">{r.task.assignee}</span>} />
+            onOpen={openRow} render={(r) => (
+              <span className="wait-side">
+                <span className="who">{waitingName(r.task)}</span>
+                <FollowUpText task={r.task} />
+                <button type="button" className="btn btn-sm btn-ghost wait-got" title="התקבל — הסר המתנה"
+                  onClick={(e) => { e.stopPropagation(); clearWaiting(r); }}>התקבל</button>
+              </span>
+            )} />
         </aside>
       </div>
 
@@ -1444,4 +1483,4 @@ function ProjectView({ data, actions, search, cityId, projectId, userEmail }) {
   );
 }
 
-Object.assign(window, { TopBar, Crumbs, TaskBoard, TaskCard, DashboardView, AreaView, CityView, ProjectView });
+Object.assign(window, { waitingName, TopBar, Crumbs, TaskBoard, TaskCard, DashboardView, AreaView, CityView, ProjectView });
