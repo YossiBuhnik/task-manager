@@ -6,7 +6,7 @@ const { useState: vUseState, useMemo: vUseMemo, useEffect: vUseEffect } = React;
 // ───────────────────────────────────────────────────────────
 // SHARED: Top bar
 // ───────────────────────────────────────────────────────────
-function TopBar({ search, onSearchChange, theme, onToggleTheme, onSettings }) {
+function TopBar({ search, onSearchChange, theme, onToggleTheme, onSettings, onAdd }) {
   return (
     <header className="topbar">
       <div className="brand">
@@ -20,6 +20,11 @@ function TopBar({ search, onSearchChange, theme, onToggleTheme, onSettings }) {
         value={search}
         onChange={(e) => onSearchChange(e.target.value)}
       />
+      {onAdd && (
+        <button type="button" className="theme-toggle add-btn" onClick={onAdd} aria-label="משימה חדשה" title="משימה חדשה">
+          {window.Icon.plus}
+        </button>
+      )}
       {onToggleTheme && (
         <button type="button" className="theme-toggle" onClick={onToggleTheme}
           aria-label={theme === "dark" ? "מצב יום" : "מצב לילה"} title={theme === "dark" ? "מצב יום" : "מצב לילה"}>
@@ -954,8 +959,100 @@ function TaskBoard({ data, actions, search, userEmail, userName }) {
         </aside>
       </div>
 
+      <AreaStrip tree={tree} rows={allRows} />
+
       {modal}
     </div>
+  );
+}
+
+// Areas at the foot of the board: open / overdue / in-review per area, one tap into it.
+function AreaStrip({ tree, rows }) {
+  return (
+    <section className="panel area-strip">
+      <div className="panel-head"><h2>תחומים</h2><span className="count">{tree.length}</span></div>
+      <div className="area-tiles">
+        {tree.map(({ area }) => {
+          const mine = rows.filter(r => r.area.id === area.id && isOpenRow(r));
+          const late = mine.filter(r => !r.task.awaitingReview && r.urg.bucket === "overdue").length;
+          const review = mine.filter(r => r.task.awaitingReview).length;
+          const go = () => { if (!area.isUnassigned) window.go("/area/" + area.id); };
+          return (
+            <button key={area.id} type="button" className={"area-tile tone-" + window.areaTone(area.id)} onClick={go}>
+              <span className="area-tile-name">
+                {area.name}
+                {area.visibility === "private" && <span className="area-lock">{window.Icon.lock}</span>}
+              </span>
+              <span className="area-tile-stats">
+                <span><b>{mine.length - review}</b> פתוחות</span>
+                {late > 0 && <span className="is-late"><b>{late}</b> באיחור</span>}
+                {review > 0 && <span className="is-review"><b>{review}</b> בסקירה</span>}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// ── Quick add: a new task from anywhere, filed to a project in the same form ──
+const LAST_PROJECT_KEY = "tm-last-project";
+function QuickAddModal({ data, actions, userEmail, onClose }) {
+  const tree = vUseMemo(() => window.visibleTree(data, userEmail), [data, userEmail]);
+  const options = [];
+  for (const { area, clients } of tree)
+    for (const { city, projects } of clients)
+      for (const p of projects) options.push({ key: city.id + "|" + p.id, area, city, project: p });
+  const [key, setKey] = vUseState(() => {
+    let last = "";
+    try { last = localStorage.getItem(LAST_PROJECT_KEY) || ""; } catch (e) {}
+    return options.some(o => o.key === last) ? last : (options[0] ? options[0].key : "");
+  });
+  const sel = options.find(o => o.key === key);
+  if (!options.length) {
+    return (
+      <window.Modal title="משימה חדשה" onClose={onClose}
+        footer={<button className="btn" onClick={onClose}>סגירה</button>}>
+        <p>אין עדיין פרויקטים. צור תחום, מזמין ופרויקט במסך «ניהול».</p>
+      </window.Modal>
+    );
+  }
+  const groups = [];
+  for (const o of options) {
+    const label = o.area.name + " · " + o.city.name;
+    let g = groups.find(x => x.label === label);
+    if (!g) groups.push(g = { label, items: [] });
+    g.items.push(o);
+  }
+  const picker = (
+    <div className="field qa-file">
+      <label>שיוך — לאיזה פרויקט</label>
+      <select value={key} onChange={(e) => setKey(e.target.value)}>
+        {groups.map(g => (
+          <optgroup key={g.label} label={g.label}>
+            {g.items.map(o => <option key={o.key} value={o.key}>{o.project.name}</option>)}
+          </optgroup>
+        ))}
+      </select>
+      {sel && <div className="task-context"><window.AreaChip area={sel.area} /><span className="task-context-path">{sel.city.name}</span></div>}
+    </div>
+  );
+  return (
+    <window.TaskModal
+
+      task={null}
+      topSlot={picker}
+      projectTasks={sel ? sel.project.tasks : []}
+      onClose={onClose}
+      onSave={(fields) => {
+        if (!sel) return;
+        actions.addTask(sel.city.id, sel.project.id, fields);
+        try { localStorage.setItem(LAST_PROJECT_KEY, key); } catch (e) {}
+        if (window.toastInfo) window.toastInfo("משימה נוספה", sel.project.name);
+        onClose();
+      }}
+    />
   );
 }
 
@@ -1728,4 +1825,4 @@ function ProjectView({ data, actions, search, cityId, projectId, userEmail }) {
   );
 }
 
-Object.assign(window, { waitingName, AdminView, TopBar, Crumbs, TaskBoard, TaskCard, DashboardView, AreaView, CityView, ProjectView });
+Object.assign(window, { waitingName, AdminView, QuickAddModal, TopBar, Crumbs, TaskBoard, TaskCard, DashboardView, AreaView, CityView, ProjectView });

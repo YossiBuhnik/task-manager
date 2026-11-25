@@ -587,7 +587,7 @@ function DurationField({ min, max, onChange }) {
 }
 
 // ─── Task modal ─────────────────────────────────────────────
-function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onApprove, context }) {
+function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onApprove, context, topSlot }) {
   const [t, setT] = useState({
     title: task?.title || "",
     status: task?.status || "todo",
@@ -676,6 +676,7 @@ function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onAppro
         <label>כותרת</label>
         <input autoFocus value={t.title} onChange={(e) => set("title", e.target.value)} />
       </div>
+      {topSlot}
       <div className="field-row">
         <div className="field">
           <label>סטטוס</label>

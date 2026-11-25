@@ -126,6 +126,7 @@ function Workspace({ cloud, installPrompt, onInstall }) {
   const [search, setSearch] = React.useState("");
   const [t, setTweak] = window.useTweaks(TWEAK_DEFAULTS);
   const [theme, toggleTheme] = useTheme();
+  const [quickAdd, setQuickAdd] = React.useState(false);
   const fileInputRef = React.useRef(null);
 
   React.useEffect(() => {
@@ -200,11 +201,19 @@ function Workspace({ cloud, installPrompt, onInstall }) {
     <div className="app">
       <CloudBadge cloud={cloud} installPrompt={installPrompt} onInstall={onInstall} />
       <window.TopBar search={search} onSearchChange={setSearch} theme={theme} onToggleTheme={toggleTheme}
-        onSettings={() => window.go("/admin")} />
+        onSettings={() => window.go("/admin")} onAdd={() => setQuickAdd(true)} />
       {body}
 
       <input ref={fileInputRef} type="file" accept="application/json,.json"
         style={{ display: "none" }} onChange={onFile} />
+
+      <button type="button" className="fab-add" onClick={() => setQuickAdd(true)} aria-label="משימה חדשה">
+        {window.Icon.plus}
+      </button>
+      {quickAdd && (
+        <window.QuickAddModal data={data} actions={actions} userEmail={cloud.user?.email}
+          onClose={() => setQuickAdd(false)} />
+      )}
 
       <window.TweaksPanel>
         <window.TweakSection label="מראה" />
