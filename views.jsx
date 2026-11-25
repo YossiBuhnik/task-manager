@@ -6,7 +6,7 @@ const { useState: vUseState, useMemo: vUseMemo, useEffect: vUseEffect } = React;
 // ───────────────────────────────────────────────────────────
 // SHARED: Top bar
 // ───────────────────────────────────────────────────────────
-function TopBar({ search, onSearchChange, theme, onToggleTheme }) {
+function TopBar({ search, onSearchChange, theme, onToggleTheme, onSettings, onAdd }) {
   return (
     <header className="topbar">
       <div className="brand">
@@ -20,10 +20,20 @@ function TopBar({ search, onSearchChange, theme, onToggleTheme }) {
         value={search}
         onChange={(e) => onSearchChange(e.target.value)}
       />
+      {onAdd && (
+        <button type="button" className="theme-toggle add-btn" onClick={onAdd} aria-label="משימה חדשה" title="משימה חדשה">
+          {window.Icon.plus}
+        </button>
+      )}
       {onToggleTheme && (
         <button type="button" className="theme-toggle" onClick={onToggleTheme}
           aria-label={theme === "dark" ? "מצב יום" : "מצב לילה"} title={theme === "dark" ? "מצב יום" : "מצב לילה"}>
           {theme === "dark" ? window.Icon.sun : window.Icon.moon}
+        </button>
+      )}
+      {onSettings && (
+        <button type="button" className="theme-toggle" onClick={onSettings} aria-label="ניהול" title="ניהול">
+          {window.Icon.settings}
         </button>
       )}
     </header>
@@ -156,6 +166,30 @@ const isBoardRow = (r) => !r.task.awaitingReview;
 
 // "Waiting on others": approved open tasks with waitingOn set, or status "waiting".
 // Review-queue rows stay out. Assignee and bot source do not count.
+// Who the task is waiting on, as text (waitingOn may be a string, list or object).
+function waitingName(task) {
+  const w = task && task.waitingOn;
+  if (!w) return "";
+  if (Array.isArray(w)) return w.map(x => String(x || "").trim()).filter(Boolean).join(", ");
+  if (typeof w === "object") return String(w.name || w.person || w.party || "");
+  return String(w).trim();
+}
+
+// Follow-up of a waiting task: { daysUntil, label } or null.
+function followUpOf(task) {
+  if (!task || !task.waitingFollowUp || !waitingName(task)) return null;
+  const n = window.TM.daysUntil(task.waitingFollowUp);
+  if (n == null) return null;
+  return { daysUntil: n, label: boardDue({ due: task.waitingFollowUp }) };
+}
+
+function FollowUpText({ task }) {
+  const f = followUpOf(task);
+  if (!f) return null;
+  const cls = f.daysUntil < 0 ? "is-overdue" : f.daysUntil <= 1 ? "is-soon" : "";
+  return <span className={"due " + cls}>מעקב · {f.label}</span>;
+}
+
 function isWaitingRow(r) {
   return isOpenRow(r) && isBoardRow(r) && window.TM.isWaitingOnOthers(r.task);
 }
@@ -236,6 +270,7 @@ function TaskCard({ row, onOpen, compact, showDuration, onToggleDone, userEmail 
         {meta.map((m, i) => <span key={i}>{m}</span>)}
         <DueText task={task} urg={urg} />
         {task.assignee && <span className="who">{task.assignee}</span>}
+        {waitingName(task) && <span className="waiting-on">ממתין ל{waitingName(task)}</span>}
         {showDuration && window.formatDurationHe(task) && <span className="dur">{window.formatDurationHe(task)}</span>}
       </div>
     </div>
@@ -442,7 +477,7 @@ function RowList({ title, rows, empty, onOpen, onToggleDone, userEmail, render }
       {rows.length === 0 ? <div className="panel-empty">{empty}</div> : (
         <ul>
           {rows.map(r => (
-            <li key={r.task.id}>
+            <li key={r.task.id + (r.kind || "")}>
               <div role="button" tabIndex={0}
                 className={"rl-row tone-" + window.areaTone(r.area.id)}
                 onClick={() => onOpen(r)}
@@ -519,17 +554,26 @@ function useNarrow(q = "(max-width: 640px)") {
   return narrow;
 }
 
-function PhoneHome({ allRows, inboxCount, onOpen, onShowBoard, actions }) {
+function PhoneHome({ allRows, inboxRows, hours, onOpen, onShowBoard, actions }) {
   // Contract helper on the visible set (private areas stay hidden):
   // approved, open, dated tasks only, by urgency score.
   const byId = new Map(allRows.map(r => [r.task.id, r]));
   const top = window.TM.listTopUrgent(allRows.map(r => r.task), { limit: 3 }).map(t => byId.get(t.id));
   const undated = allRows.filter(r => isOpenRow(r) && isBoardRow(r) && !r.task.due).length;
   const markDone = (r) => actions.updateTask(r.city.id, r.project.id, r.task.id, { status: "done" });
+  const L = computeLoad(allRows, hours);
   return (
     <div className="phone-home">
-      <h1 className="tb-title">מה הכי דחוף עכשיו</h1>
-      <p className="ph-sub">{new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" })}</p>
+      <div className="ph-top">
+        <h1 className="tb-title">היום</h1>
+        <span className="ph-sub">{new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "short" })}</span>
+      </div>
+      {L.today && (
+        <section className="panel load-panel">
+          <LoadLine title="עומס היום" lo={L.today.lo} hi={L.today.hi} cap={L.cap} />
+        </section>
+      )}
+      <p className="ph-label">3 הכי דחופות</p>
       {top.length === 0 ? (
         <div className="panel-empty">אין משימות פתוחות עם תאריך יעד.</div>
       ) : (
@@ -547,9 +591,234 @@ function PhoneHome({ allRows, inboxCount, onOpen, onShowBoard, actions }) {
       )}
       <div className="ph-more">
         {undated > 0 && <span>עוד {undated} משימות פתוחות ללא תאריך יעד</span>}
-        {inboxCount > 0 && <span className="ph-inbox">{inboxCount} ממתינות לסקירה</span>}
       </div>
+      <QuickReview rows={inboxRows} actions={actions} onOpen={onOpen} />
       <button className="btn btn-primary ph-board" onClick={onShowBoard}>ללוח המלא</button>
+    </div>
+  );
+}
+
+// ── Work hours (per device for now) and load vs. available time ──
+const HOURS_KEY = "tm-hours";
+function readHours() {
+  try { const n = Number(localStorage.getItem(HOURS_KEY)); if (n >= 1 && n <= 16) return n; } catch (e) {}
+  return 8;
+}
+function useWorkHours() {
+  const [hours, setHours] = vUseState(readHours);
+  vUseEffect(() => {
+    const on = () => setHours(readHours());
+    window.addEventListener("tm-hours", on);
+    return () => window.removeEventListener("tm-hours", on);
+  }, []);
+  const save = (n) => {
+    try { localStorage.setItem(HOURS_KEY, String(n)); } catch (e) {}
+    setHours(n);
+    window.dispatchEvent(new Event("tm-hours"));
+  };
+  return [hours, save];
+}
+
+// [min, max] minutes of a task; legacy `duration` counts as both; none → null.
+function rangeOf(task) {
+  let lo = task.durationMin, hi = task.durationMax;
+  if (!Number.isInteger(lo) || !Number.isInteger(hi)) lo = hi = task.duration;
+  return Number.isInteger(lo) && Number.isInteger(hi) && lo > 0 && lo <= hi ? [lo, hi] : null;
+}
+
+const WEEKDAY_SHORT = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
+
+// Work week Sun–Thu. Overdue tasks count on today. Undated tasks are not planned.
+function computeLoad(rows, hours) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dow = today.getDay();
+  const start = dow >= 5 ? 7 - dow : 0;          // Fri/Sat → plan next Sun–Thu
+  const days = [];
+  for (let off = start; off <= 4 - dow + (dow >= 5 ? 7 : 0); off++) {
+    const d = new Date(today); d.setDate(d.getDate() + off);
+    days.push({ off, label: WEEKDAY_SHORT[d.getDay()], lo: 0, hi: 0, n: 0 });
+  }
+  let missing = 0;
+  for (const r of rows) {
+    if (r.task.status === "done" || r.task.awaitingReview || !r.task.due) continue;
+    const n = r.urg.daysUntil;
+    if (n == null) continue;
+    const off = Math.max(n, start);
+    const day = days.find(x => x.off === off);
+    if (!day) continue;
+    const rg = rangeOf(r.task);
+    if (!rg) { missing++; continue; }
+    day.lo += rg[0]; day.hi += rg[1]; day.n++;
+  }
+  const cap = hours * 60;
+  const sum = (k) => days.reduce((s, d) => s + d[k], 0);
+  return {
+    today: start === 0 ? days[0] : null,
+    days, cap,
+    week: { lo: sum("lo"), hi: sum("hi"), cap: cap * days.length },
+    missing,
+  };
+}
+
+const fmtH = (m) => {
+  const h = m / 60;
+  return (Number.isInteger(h) ? h : h.toFixed(1)).toString();
+};
+function loadText(lo, hi) {
+  if (!hi) return "0";
+  return lo === hi ? fmtH(lo) : "⁦" + fmtH(lo) + "–" + fmtH(hi) + "⁩";
+}
+function loadTone(lo, hi, cap) {
+  return lo > cap ? "is-over" : hi > cap ? "is-tight" : "";
+}
+
+function LoadBar({ lo, hi, cap }) {
+  const scale = Math.max(cap, hi) || 1;
+  return (
+    <div className={"load-bar " + loadTone(lo, hi, cap)}>
+      <span className="load-min" style={{ width: (lo / scale * 100) + "%" }} />
+      <span className="load-max" style={{ width: ((hi - lo) / scale * 100) + "%" }} />
+      {hi > cap && <span className="load-cap" style={{ insetInlineStart: (cap / scale * 100) + "%" }} />}
+    </div>
+  );
+}
+
+function LoadLine({ title, lo, hi, cap }) {
+  const tone = loadTone(lo, hi, cap);
+  return (
+    <div className="load-line">
+      <div className="load-head">
+        <span className="load-title">{title}</span>
+        <span className={"load-num " + tone}>
+          {loadText(lo, hi)} שע׳ מתוך {fmtH(cap)}
+          {tone === "is-over" && " · עומס יתר"}
+          {tone === "is-tight" && " · צפוף"}
+        </span>
+      </div>
+      <LoadBar lo={lo} hi={hi} cap={cap} />
+    </div>
+  );
+}
+
+function LoadPanel({ rows, hours }) {
+  const L = computeLoad(rows, hours);
+  return (
+    <section className="panel load-panel">
+      <div className="load-grid">
+        {L.today && <LoadLine title="היום" lo={L.today.lo} hi={L.today.hi} cap={L.cap} />}
+        <LoadLine title={L.today ? "השבוע" : "שבוע הבא"} lo={L.week.lo} hi={L.week.hi} cap={L.week.cap} />
+      </div>
+      <div className="load-days">
+        {L.days.map(d => (
+          <span key={d.off} className={"load-day " + loadTone(d.lo, d.hi, L.cap)}
+            title={d.n + " משימות"}>{d.label} {loadText(d.lo, d.hi)}</span>
+        ))}
+        {L.missing > 0 && <span className="load-note">{L.missing} משימות בלי משך לא נספרו</span>}
+      </div>
+    </section>
+  );
+}
+
+// ── Phone: one review card at a time ──
+function QuickReview({ rows, actions, onOpen }) {
+  const [i, setI] = vUseState(0);
+  if (!rows.length) return null;
+  const idx = Math.min(i, rows.length - 1);
+  const r = rows[idx];
+  const pending = window.TM.pendingProposals(r.task);
+  const reject = () => {
+    if (confirm(`לדחות ולמחוק את «${r.task.title}»?`)) actions.deleteTask(r.city.id, r.project.id, r.task.id);
+  };
+  return (
+    <section className="qr">
+      <div className="qr-head">
+        <span>סקירה מהירה · {rows.length} מהבוטים</span>
+        <span className="qr-nav">
+          <button type="button" aria-label="הקודם" disabled={idx === 0} onClick={() => setI(idx - 1)}>›</button>
+          <span>{idx + 1} / {rows.length}</span>
+          <button type="button" aria-label="הבא" disabled={idx >= rows.length - 1} onClick={() => setI(idx + 1)}>‹</button>
+        </span>
+      </div>
+      <TaskCard row={r} onOpen={onOpen} showDuration />
+      <div className="qr-actions">
+        {r.task.awaitingReview ? (
+          <>
+            <button className="btn btn-primary" onClick={() => actions.approveTask(r.task.id)}>{window.Icon.check}<span>אשר</span></button>
+            <button className="btn" onClick={() => onOpen(r)}>{window.Icon.edit}<span>ערוך</span></button>
+            <button className="btn btn-ghost" onClick={reject}>דחה</button>
+          </>
+        ) : pending[0] ? (
+          <>
+            <button className="btn btn-primary" onClick={() => actions.acceptProposal(r.task.id, pending[0].id)}>{window.Icon.check}<span>קבל הצעה</span></button>
+            <button className="btn" onClick={() => actions.rejectProposal(r.task.id, pending[0].id)}>דחה הצעה</button>
+          </>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+// ── Admin («ניהול») ──
+function AdminView({ data, actions, userEmail, theme, onToggleTheme, onExport, onImport, onReset, localMode, children }) {
+  const [hours, setHours] = useWorkHours();
+  const rows = vUseMemo(() => boardRows(data, userEmail), [data, userEmail]);
+  const sources = window.TM.SOURCES.filter(s => s.key).map(s => {
+    const mine = rows.filter(r => (r.task.source || "") === s.key);
+    return {
+      ...s,
+      open: mine.filter(r => isOpenRow(r) && !r.task.awaitingReview).length,
+      review: mine.filter(r => isOpenRow(r) && r.task.awaitingReview).length,
+      props: mine.reduce((n, r) => n + window.TM.pendingProposals(r.task).length, 0),
+      done: mine.filter(r => r.task.status === "done").length,
+    };
+  });
+  return (
+    <div className="tb admin">
+      <button className="btn btn-sm ph-back" onClick={() => window.go("/")}>‹ ללוח</button>
+      <div className="tb-head"><h1 className="tb-title">ניהול</h1></div>
+      <div className="tb-grid">
+        <div className="tb-main">
+          {children}
+          <section className="panel">
+            <div className="panel-head"><h2>בוטים ומקורות</h2><span className="count">{sources.length}</span></div>
+            <ul className="src-list">
+              {sources.map(s => (
+                <li key={s.key} className="src-row">
+                  <window.SourceChip source={s.key} />
+                  <span className="src-stats">
+                    <span><b>{s.open}</b> פתוחות</span>
+                    <span className={s.review ? "is-hot" : ""}><b>{s.review}</b> בסקירה</span>
+                    <span className={s.props ? "is-hot" : ""}><b>{s.props}</b> הצעות</span>
+                    <span><b>{s.done}</b> הושלמו</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+        <aside className="tb-aside">
+          <section className="panel">
+            <div className="panel-head"><h2>שעות עבודה ביום</h2></div>
+            <Segmented label="שעות עבודה" value={String(hours)} onChange={(v) => setHours(Number(v))}
+              options={[6, 7, 8, 9, 10].map(n => ({ key: String(n), label: String(n) }))} />
+            <p className="admin-note">בסיס לחישוב העומס, א׳–ה׳. נשמר במכשיר הזה.</p>
+          </section>
+          <section className="panel">
+            <div className="panel-head"><h2>מראה</h2></div>
+            <Segmented label="מראה" value={theme} onChange={(v) => { if (v !== theme) onToggleTheme(); }}
+              options={[{ key: "light", label: "יום" }, { key: "dark", label: "לילה" }]} />
+          </section>
+          <section className="panel">
+            <div className="panel-head"><h2>גיבוי ונתונים</h2></div>
+            <div className="admin-actions">
+              <button className="btn btn-sm" onClick={onExport}>{window.Icon.download}<span>ייצוא JSON</span></button>
+              <button className="btn btn-sm" onClick={onImport}>{window.Icon.upload}<span>ייבוא JSON</span></button>
+              {localMode && <button className="btn btn-sm" onClick={onReset}>{window.Icon.refresh}<span>איפוס לדוגמה</span></button>}
+            </div>
+            <p className="admin-note">{localMode ? "הנתונים נשמרים במכשיר הזה." : "הנתונים מסונכרנים בענן (Firestore)."}</p>
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }
@@ -571,6 +840,7 @@ function TaskBoard({ data, actions, search, userEmail, userName }) {
   });
   const setBoardView = (v) => { setView(v); try { localStorage.setItem("tm_board_view", v); } catch (e) {} };
   const narrow = useNarrow();
+  const [hours] = useWorkHours();
   // Phone: the app opens on the top-urgent list; the full board is one tap away
   // (remembered for this browser session only).
   const [fullOnPhone, setFullOnPhone] = vUseState(() => {
@@ -591,9 +861,16 @@ function TaskBoard({ data, actions, search, userEmail, userName }) {
   const overdue = urgent.filter(r => r.urg.bucket === "overdue").length;
   const doing = open.filter(TILE_FILTERS.doing.test);
   const waiting = board.filter(r => isWaitingRow(r, me));
-  const reminders = open
+  const dueSoon = open
     .filter(r => r.task.due && r.urg.daysUntil >= 0 && r.urg.daysUntil <= 7)
-    .sort((a, b) => (a.task.due + (a.task.time || "")).localeCompare(b.task.due + (b.task.time || "")));
+    .map(r => ({ ...r, kind: "due", at: r.task.due + (r.task.time || "") }));
+  // Follow-ups on waiting tasks: due within a week, or already late.
+  const followUps = waiting
+    .filter(r => { const f = followUpOf(r.task); return f && f.daysUntil <= 7; })
+    .map(r => ({ ...r, kind: "follow", at: r.task.waitingFollowUp }));
+  const reminders = [...followUps, ...dueSoon].sort((a, b) => a.at.localeCompare(b.at));
+  const clearWaiting = (r) =>
+    actions.updateTask(r.city.id, r.project.id, r.task.id, { waitingOn: "", waitingFollowUp: "" });
 
   const boardShown = !tile ? board
     : tile === "waiting" ? waiting
@@ -625,7 +902,7 @@ function TaskBoard({ data, actions, search, userEmail, userName }) {
   if (narrow && !fullOnPhone && !search) {
     return (
       <div className="tb">
-        <PhoneHome allRows={allRows} inboxCount={inbox.length} onOpen={openRow}
+        <PhoneHome allRows={allRows} inboxRows={inbox} hours={hours} onOpen={openRow}
           onShowBoard={() => showFull(true)} actions={actions} />
         {modal}
       </div>
@@ -641,6 +918,8 @@ function TaskBoard({ data, actions, search, userEmail, userName }) {
       <div className="tb-head">
         <h1 className="tb-title">{new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" })}</h1>
       </div>
+
+      <LoadPanel rows={allRows} hours={hours} />
 
       <div className="stats">
         <StatTile tone="review" label="ממתין לסקירה" value={inbox.length} sub="מהבוטים" onClick={scrollInbox} />
@@ -667,18 +946,165 @@ function TaskBoard({ data, actions, search, userEmail, userName }) {
         <aside className="tb-aside">
           <RowList title="תזכורות קרובות" rows={reminders.slice(0, 8)} empty="אין תזכורות בשבוע הקרוב"
             onOpen={openRow} onToggleDone={toggleDone} userEmail={userEmail}
-            render={(r) => <DueText task={r.task} urg={r.urg} />} />
+            render={(r) => r.kind === "follow" ? <FollowUpText task={r.task} /> : <DueText task={r.task} urg={r.urg} />} />
           <RowList title="ממתין לאחרים" rows={waiting.slice(0, 8)} empty="אין משימות שממתינות לאחרים"
-            onOpen={openRow} render={(r) => <span className="who">{r.task.assignee}</span>} />
+            onOpen={openRow} render={(r) => (
+              <span className="wait-side">
+                <span className="who">{waitingName(r.task)}</span>
+                <FollowUpText task={r.task} />
+                <button type="button" className="btn btn-sm btn-ghost wait-got" title="התקבל — הסר המתנה"
+                  onClick={(e) => { e.stopPropagation(); clearWaiting(r); }}>התקבל</button>
+              </span>
+            )} />
         </aside>
       </div>
+
+      <AreaStrip tree={tree} rows={allRows} />
 
       {modal}
     </div>
   );
 }
 
-function DashboardView({ data, actions, search, userEmail, userName }) {
+// Areas at the foot of the board: open / overdue / in-review per area, one tap into it.
+function AreaStrip({ tree, rows }) {
+  return (
+    <section className="panel area-strip">
+      <div className="panel-head"><h2>תחומים</h2><span className="count">{tree.length}</span></div>
+      <div className="area-tiles">
+        {tree.map(({ area }) => {
+          const mine = rows.filter(r => r.area.id === area.id && isOpenRow(r));
+          const late = mine.filter(r => !r.task.awaitingReview && r.urg.bucket === "overdue").length;
+          const review = mine.filter(r => r.task.awaitingReview).length;
+          const go = () => { if (!area.isUnassigned) window.go("/area/" + area.id); };
+          return (
+            <button key={area.id} type="button" className={"area-tile tone-" + window.areaTone(area.id)} onClick={go}>
+              <span className="area-tile-name">
+                {area.name}
+                {area.visibility === "private" && <span className="area-lock">{window.Icon.lock}</span>}
+              </span>
+              <span className="area-tile-stats">
+                <span><b>{mine.length - review}</b> פתוחות</span>
+                {late > 0 && <span className="is-late"><b>{late}</b> באיחור</span>}
+                {review > 0 && <span className="is-review"><b>{review}</b> בסקירה</span>}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// Type-to-find project picker: matches project, client or area; project-name
+// prefix matches first. ↑/↓ to move, Enter to pick, Esc to cancel.
+function ProjectCombo({ options, value, onChange }) {
+  const sel = options.find(o => o.key === value);
+  const [q, setQ] = vUseState(null);            // null = not typing, show the selection
+  const [active, setActive] = vUseState(0);
+  const listRef = React.useRef(null);
+  const norm = (s) => String(s || "").toLowerCase().replace(/["'׳״]/g, "");
+  const query = norm(q || "").trim();
+  const matches = q == null ? [] : options
+    .map(o => {
+      const name = norm(o.project.name);
+      const rest = norm(o.city.name + " " + o.area.name);
+      const rank = !query ? 2 : name.startsWith(query) ? 0 : name.includes(query) ? 1 : rest.includes(query) ? 2 : -1;
+      return { o, rank };
+    })
+    .filter(x => x.rank >= 0)
+    .sort((a, b) => a.rank - b.rank)
+    .map(x => x.o)
+    .slice(0, 8);
+  const open = q != null;
+  const pick = (o) => { onChange(o.key); setQ(null); };
+  const onKey = (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); setActive(i => Math.min(i + 1, matches.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive(i => Math.max(i - 1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); if (matches[active]) pick(matches[active]); }
+    else if (e.key === "Escape" && open) { e.stopPropagation(); setQ(null); }
+  };
+  vUseEffect(() => {
+    const el = listRef.current && listRef.current.children[active];
+    if (el) el.scrollIntoView({ block: "nearest" });
+  }, [active]);
+  return (
+    <div className="pcombo">
+      <input
+        role="combobox" aria-expanded={open} aria-autocomplete="list"
+        value={q != null ? q : (sel ? sel.project.name : "")}
+        placeholder="התחל להקליד שם פרויקט, מזמין או תחום…"
+        onFocus={(e) => { setQ(""); setActive(0); }}
+        onChange={(e) => { setQ(e.target.value); setActive(0); }}
+        onBlur={() => setQ(null)}
+        onKeyDown={onKey} />
+      {open && (
+        <ul className="pcombo-list" role="listbox" ref={listRef}>
+          {matches.length === 0 && <li className="pcombo-empty">אין פרויקט כזה</li>}
+          {matches.map((o, i) => (
+            <li key={o.key} role="option" aria-selected={i === active}
+              className={"pcombo-item tone-" + window.areaTone(o.area.id) + (i === active ? " is-active" : "") + (o.key === value ? " is-current" : "")}
+              onMouseDown={(e) => { e.preventDefault(); pick(o); }}
+              onMouseEnter={() => setActive(i)}>
+              <span className="pcombo-name">{o.project.name}</span>
+              <span className="pcombo-path">{o.area.name} · {o.city.name}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ── Quick add: a new task from anywhere, filed to a project in the same form ──
+const LAST_PROJECT_KEY = "tm-last-project";
+function QuickAddModal({ data, actions, userEmail, onClose }) {
+  const tree = vUseMemo(() => window.visibleTree(data, userEmail), [data, userEmail]);
+  const options = [];
+  for (const { area, clients } of tree)
+    for (const { city, projects } of clients)
+      for (const p of projects) options.push({ key: city.id + "|" + p.id, area, city, project: p });
+  const [key, setKey] = vUseState(() => {
+    let last = "";
+    try { last = localStorage.getItem(LAST_PROJECT_KEY) || ""; } catch (e) {}
+    return options.some(o => o.key === last) ? last : (options[0] ? options[0].key : "");
+  });
+  const sel = options.find(o => o.key === key);
+  if (!options.length) {
+    return (
+      <window.Modal title="משימה חדשה" onClose={onClose}
+        footer={<button className="btn" onClick={onClose}>סגירה</button>}>
+        <p>אין עדיין פרויקטים. צור תחום, מזמין ופרויקט במסך «ניהול».</p>
+      </window.Modal>
+    );
+  }
+  const picker = (
+    <div className="field qa-file">
+      <label>שיוך — לאיזה פרויקט</label>
+      <ProjectCombo options={options} value={key} onChange={setKey} />
+      {sel && <div className="task-context"><window.AreaChip area={sel.area} /><span className="task-context-path">{sel.city.name}</span></div>}
+    </div>
+  );
+  return (
+    <window.TaskModal
+
+      task={null}
+      topSlot={picker}
+      projectTasks={sel ? sel.project.tasks : []}
+      onClose={onClose}
+      onSave={(fields) => {
+        if (!sel) return;
+        actions.addTask(sel.city.id, sel.project.id, fields);
+        try { localStorage.setItem(LAST_PROJECT_KEY, key); } catch (e) {}
+        if (window.toastInfo) window.toastInfo("משימה נוספה", sel.project.name);
+        onClose();
+      }}
+    />
+  );
+}
+
+// Board home, or (admin) the areas / clients / projects structure for «ניהול».
+function DashboardView({ data, actions, search, userEmail, userName, admin }) {
   const [collapsed, setCollapsed] = vUseState(false);
   const [showAreaModal, setShowAreaModal] = vUseState(false);
   const [editArea, setEditArea] = vUseState(null);
@@ -695,14 +1121,16 @@ function DashboardView({ data, actions, search, userEmail, userName }) {
       clients.some(({ city, projects }) => clientMatches(q, city, projects)));
   }, [tree, search]);
 
+  if (!admin) {
+    return <TaskBoard data={data} actions={actions} search={search} userEmail={userEmail} userName={userName} />;
+  }
+
   return (
     <>
-      <TaskBoard data={data} actions={actions} search={search} userEmail={userEmail} userName={userName} />
-
-      <div className="section">
+      <div className="section panel">
         <div className="section-head">
           <window.CollapseToggle collapsed={collapsed} onToggle={() => setCollapsed(v => !v)} />
-          <h2>תחומים ופרויקטים</h2>
+          <h2>תחומים, מזמינים ופרויקטים</h2>
           <span className="section-count">{filteredTree.length}</span>
           <div className="section-spacer" />
           <button className="btn btn-sm" onClick={() => setShowAreaModal(true)}>
@@ -1444,4 +1872,4 @@ function ProjectView({ data, actions, search, cityId, projectId, userEmail }) {
   );
 }
 
-Object.assign(window, { TopBar, Crumbs, TaskBoard, TaskCard, DashboardView, AreaView, CityView, ProjectView });
+Object.assign(window, { waitingName, AdminView, QuickAddModal, TopBar, Crumbs, TaskBoard, TaskCard, DashboardView, AreaView, CityView, ProjectView });

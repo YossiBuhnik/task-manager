@@ -26,6 +26,7 @@ const Icon = {
   x:       <svg className="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>,
   moon:    <svg className="ico" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z"/></svg>,
   sun:     <svg className="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>,
+  settings:<svg className="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>,
   users:   <svg className="ico" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M14.5 14.5c1-.3 1.8-.5 2.5-.5 2.8 0 5 2.2 5 5"/></svg>,
 };
 
@@ -586,7 +587,7 @@ function DurationField({ min, max, onChange }) {
 }
 
 // ─── Task modal ─────────────────────────────────────────────
-function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onApprove, context }) {
+function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onApprove, context, topSlot }) {
   const [t, setT] = useState({
     title: task?.title || "",
     status: task?.status || "todo",
@@ -597,6 +598,8 @@ function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onAppro
     durationMax: Number.isInteger(task?.durationMax) ? task.durationMax : (task?.duration ?? 60),
     participants: task?.participants || "",
     assignee: task?.assignee || "",
+    waitingOn: window.waitingName ? window.waitingName(task) : (typeof task?.waitingOn === "string" ? task.waitingOn : ""),
+    waitingFollowUp: task?.waitingFollowUp || "",
     priority: task?.priority || "mid",
     notes: task?.notes || "",
     recur: task?.recur || null,
@@ -630,6 +633,8 @@ function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onAppro
       ...t,
       title: t.title.trim(),
       participants: t.participants.trim(),
+      waitingOn: t.waitingOn.trim(),
+      waitingFollowUp: t.waitingOn.trim() ? t.waitingFollowUp : "",
       duration: t.durationMax,
       emails: e ? [...t.emails, e] : t.emails,
     });
@@ -671,6 +676,7 @@ function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onAppro
         <label>כותרת</label>
         <input autoFocus value={t.title} onChange={(e) => set("title", e.target.value)} />
       </div>
+      {topSlot}
       <div className="field-row">
         <div className="field">
           <label>סטטוס</label>
@@ -712,6 +718,18 @@ function TaskModal({ task, projectTasks = [], onSave, onClose, onDelete, onAppro
         <label>אחראי</label>
         <input value={t.assignee} onChange={(e) => set("assignee", e.target.value)}
           placeholder="לדוגמה: דנה לוי" />
+      </div>
+      <div className="field-row">
+        <div className="field">
+          <label>ממתין ל־ <span style={{ color: "var(--ink-3)", fontWeight: 400 }}>(מי צריך להחזיר לך משהו)</span></label>
+          <input value={t.waitingOn} onChange={(e) => set("waitingOn", e.target.value)}
+            placeholder="לדוגמה: מחלקת תנועה בעירייה" />
+        </div>
+        <div className="field">
+          <label>תאריך מעקב</label>
+          <input type="date" value={t.waitingFollowUp} disabled={!t.waitingOn.trim()}
+            onChange={(e) => set("waitingFollowUp", e.target.value)} />
+        </div>
       </div>
       <div className="field">
         <label>משתתפים נוספים <span style={{ color: "var(--ink-3)", fontWeight: 400 }}>(כתובות אימייל מופרדות בפסיק — יצורפו כהזמנה ביומן)</span></label>
