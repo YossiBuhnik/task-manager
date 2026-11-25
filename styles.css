@@ -2348,3 +2348,19 @@ html[data-theme="dark"] .dur-preset.is-on { color: var(--accent); }
 /* done toggle: keep it round (the base .task-check flex-basis squeezed it to an oval) */
 .tcard-check { flex: 0 0 auto; width: 26px; height: 26px; margin-top: -3px; }
 @media (max-width: 640px) { .tcard-check { width: 32px; height: 32px; } }
+
+/* project picker with type-ahead */
+.pcombo { position: relative; }
+.pcombo input { width: 100%; }
+.pcombo-list {
+  position: absolute; z-index: 20; inset-inline: 0; top: calc(100% + 4px); margin: 0; padding: 4px; list-style: none;
+  max-height: 280px; overflow-y: auto; background: var(--surface); border: 1px solid var(--line-2);
+  border-radius: 12px; box-shadow: var(--card-shadow-hover);
+}
+.pcombo-item { position: relative; display: flex; flex-direction: column; gap: 1px; padding: 7px 12px 7px 10px; border-radius: 8px; cursor: pointer; }
+.pcombo-item::before { content: ""; position: absolute; inset-inline-start: 3px; top: 8px; bottom: 8px; width: 3px; border-radius: 3px; background: var(--t, var(--line-2)); }
+.pcombo-item.is-active { background: var(--accent-2); }
+.pcombo-item.is-current .pcombo-name::after { content: " ✓"; color: var(--accent); }
+.pcombo-name { font-weight: 600; font-size: 14px; color: var(--ink); }
+.pcombo-path { font-size: 12px; color: var(--ink-3); }
+.pcombo-empty { padding: 10px 12px; font-size: 13px; color: var(--ink-3); }

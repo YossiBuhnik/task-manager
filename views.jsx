@@ -996,6 +996,66 @@ function AreaStrip({ tree, rows }) {
   );
 }
 
+// Type-to-find project picker: matches project, client or area; project-name
+// prefix matches first. ↑/↓ to move, Enter to pick, Esc to cancel.
+function ProjectCombo({ options, value, onChange }) {
+  const sel = options.find(o => o.key === value);
+  const [q, setQ] = vUseState(null);            // null = not typing, show the selection
+  const [active, setActive] = vUseState(0);
+  const listRef = React.useRef(null);
+  const norm = (s) => String(s || "").toLowerCase().replace(/["'׳״]/g, "");
+  const query = norm(q || "").trim();
+  const matches = q == null ? [] : options
+    .map(o => {
+      const name = norm(o.project.name);
+      const rest = norm(o.city.name + " " + o.area.name);
+      const rank = !query ? 2 : name.startsWith(query) ? 0 : name.includes(query) ? 1 : rest.includes(query) ? 2 : -1;
+      return { o, rank };
+    })
+    .filter(x => x.rank >= 0)
+    .sort((a, b) => a.rank - b.rank)
+    .map(x => x.o)
+    .slice(0, 8);
+  const open = q != null;
+  const pick = (o) => { onChange(o.key); setQ(null); };
+  const onKey = (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); setActive(i => Math.min(i + 1, matches.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive(i => Math.max(i - 1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); if (matches[active]) pick(matches[active]); }
+    else if (e.key === "Escape" && open) { e.stopPropagation(); setQ(null); }
+  };
+  vUseEffect(() => {
+    const el = listRef.current && listRef.current.children[active];
+    if (el) el.scrollIntoView({ block: "nearest" });
+  }, [active]);
+  return (
+    <div className="pcombo">
+      <input
+        role="combobox" aria-expanded={open} aria-autocomplete="list"
+        value={q != null ? q : (sel ? sel.project.name : "")}
+        placeholder="התחל להקליד שם פרויקט, מזמין או תחום…"
+        onFocus={(e) => { setQ(""); setActive(0); }}
+        onChange={(e) => { setQ(e.target.value); setActive(0); }}
+        onBlur={() => setQ(null)}
+        onKeyDown={onKey} />
+      {open && (
+        <ul className="pcombo-list" role="listbox" ref={listRef}>
+          {matches.length === 0 && <li className="pcombo-empty">אין פרויקט כזה</li>}
+          {matches.map((o, i) => (
+            <li key={o.key} role="option" aria-selected={i === active}
+              className={"pcombo-item tone-" + window.areaTone(o.area.id) + (i === active ? " is-active" : "") + (o.key === value ? " is-current" : "")}
+              onMouseDown={(e) => { e.preventDefault(); pick(o); }}
+              onMouseEnter={() => setActive(i)}>
+              <span className="pcombo-name">{o.project.name}</span>
+              <span className="pcombo-path">{o.area.name} · {o.city.name}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // ── Quick add: a new task from anywhere, filed to a project in the same form ──
 const LAST_PROJECT_KEY = "tm-last-project";
 function QuickAddModal({ data, actions, userEmail, onClose }) {
@@ -1018,23 +1078,10 @@ function QuickAddModal({ data, actions, userEmail, onClose }) {
       </window.Modal>
     );
   }
-  const groups = [];
-  for (const o of options) {
-    const label = o.area.name + " · " + o.city.name;
-    let g = groups.find(x => x.label === label);
-    if (!g) groups.push(g = { label, items: [] });
-    g.items.push(o);
-  }
   const picker = (
     <div className="field qa-file">
       <label>שיוך — לאיזה פרויקט</label>
-      <select value={key} onChange={(e) => setKey(e.target.value)}>
-        {groups.map(g => (
-          <optgroup key={g.label} label={g.label}>
-            {g.items.map(o => <option key={o.key} value={o.key}>{o.project.name}</option>)}
-          </optgroup>
-        ))}
-      </select>
+      <ProjectCombo options={options} value={key} onChange={setKey} />
       {sel && <div className="task-context"><window.AreaChip area={sel.area} /><span className="task-context-path">{sel.city.name}</span></div>}
     </div>
   );
