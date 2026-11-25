@@ -2220,3 +2220,82 @@ html[data-theme="dark"] .dur-preset.is-on { color: var(--accent); }
 .wait-side .due { font-size: 12px; }
 .wait-got { padding: 2px 8px; font-size: 12px; }
 @media (max-width: 640px) { .wait-side { flex-wrap: wrap; justify-content: flex-end; max-width: 55vw; } }
+
+/* ─── Load vs. available time ─── */
+.load-panel { padding: 12px 16px; margin-bottom: 16px; }
+.load-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px 24px; }
+.load-line { display: flex; flex-direction: column; gap: 6px; }
+.load-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.load-title { font-size: 14px; font-weight: 700; }
+.load-num { font-size: 13px; color: var(--ink-2); font-weight: 600; }
+.load-num.is-tight { color: var(--warn); }
+.load-num.is-over { color: var(--danger); }
+.load-bar { position: relative; display: flex; height: 10px; border-radius: 999px; background: var(--bg-2); overflow: hidden; }
+.load-min { background: var(--accent); }
+.load-max { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+.load-bar.is-tight .load-min { background: var(--st-doing); }
+.load-bar.is-tight .load-max { background: color-mix(in srgb, var(--st-doing) 35%, transparent); }
+.load-bar.is-over .load-min { background: var(--danger); }
+.load-bar.is-over .load-max { background: color-mix(in srgb, var(--danger) 35%, transparent); }
+.load-cap { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink); opacity: .55; }
+.load-days { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.load-day { font-size: 12px; font-weight: 600; color: var(--ink-2); background: var(--bg-2); border-radius: 999px; padding: 2px 9px; }
+.load-day.is-tight { background: var(--warn-bg); color: var(--warn); }
+.load-day.is-over { background: var(--danger-bg); color: var(--danger); }
+.load-note { font-size: 12px; color: var(--ink-3); align-self: center; }
+
+/* ─── Phone «היום» ─── */
+.ph-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ph-top .ph-sub { margin: 0; }
+.phone-home .load-panel { margin-bottom: 0; }
+.ph-label { margin: 4px 0 -4px; font-size: 13px; font-weight: 600; color: var(--ink-3); }
+.qr { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--inbox-line); background: var(--inbox-bg); border-radius: 16px; }
+.qr-head { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.qr-nav { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); }
+.qr-nav button { width: 28px; height: 28px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-size: 16px; line-height: 1; cursor: pointer; }
+.qr-nav button:disabled { opacity: .35; cursor: default; }
+.qr-actions { display: flex; gap: 6px; }
+.qr-actions .btn { flex: 1; justify-content: center; }
+
+/* ─── «ניהול» in the board language ─── */
+.admin .panel + .panel, .admin .section.panel + .panel { margin-top: 0; }
+.admin-note { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-3); }
+.admin-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.admin .seg { display: flex; }
+.admin .seg button { flex: 1; justify-content: center; }
+.src-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.src-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.src-row:last-child { border-bottom: 0; }
+.src-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--ink-3); }
+.src-stats b { color: var(--ink); font-weight: 700; }
+.src-stats .is-hot b, .src-stats .is-hot { color: var(--st-review); }
+
+/* areas / clients / projects structure as a board panel */
+.section.panel { margin: 0; }
+.section.panel .section-head { margin: 0 0 12px; padding: 0; border: 0; }
+.section.panel .section-head h2 { font-size: 16px; font-weight: 700; }
+.section.panel .cards { gap: 10px; }
+.card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: var(--card-shadow);
+}
+.card:hover { box-shadow: var(--card-shadow-hover); transform: none; }
+.card.card-tinted { background: var(--surface); }
+.card::before { width: 3px; top: 10px; bottom: 10px; border-radius: 3px; }
+
+/* area / client / project pages: flat header instead of the old gradient hero */
+.page-head {
+  background: none; color: var(--ink); box-shadow: none; padding: 0; border: 0;
+}
+.page-head::before, .page-head::after { display: none; }
+.page-head .page-title, .page-head h1 { color: var(--ink); }
+.page-head .hero-eyebrow, .page-head .page-sub, .page-head p { color: var(--ink-3); }
+.page-head .btn:not(.btn-primary) { background: var(--surface); color: var(--ink-2); border-color: var(--line); }
+.page-head .btn:not(.btn-primary):hover { background: var(--bg-2); }
+.page-head .btn-primary, .page-head .btn-primary:hover { background: var(--accent); color: var(--on-accent); box-shadow: none; }
+.page-head .area-pill { background: var(--surface); color: var(--ink-2); border: 1px solid var(--line); }
+.page-head .area-pill::before { background: var(--area-color, var(--accent)); }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--card-shadow); }
+.kpi::before { background: var(--kpi-color); }
+.kpi { position: relative; overflow: hidden; }
+.kpi::before { top: 0; bottom: 0; right: 0; left: auto; width: 4px; height: auto; border-radius: 0; background: var(--kpi-color); }

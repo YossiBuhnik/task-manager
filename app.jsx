@@ -181,6 +181,17 @@ function Workspace({ cloud, installPrompt, onInstall }) {
   else if (route.view === "project")
     body = <window.ProjectView data={data} actions={actions} search={search}
             cityId={route.cityId} projectId={route.projectId} userEmail={cloud.user?.email} />;
+  else if ((window.location.hash || "").startsWith("#/admin"))
+    // «ניהול»: structure, work hours, bots, appearance and backup — off the board.
+    body = (
+      <window.AdminView data={data} actions={actions} userEmail={cloud.user?.email}
+        theme={theme} onToggleTheme={toggleTheme}
+        onExport={onExport} onImport={onImport} localMode={cloud.mode === "local"}
+        onReset={() => { if (confirm("לאפס לנתוני הדוגמה? כל השינויים יימחקו.")) actions.resetSeed(); }}>
+        <window.DashboardView admin data={data} actions={actions} search={search}
+          userEmail={cloud.user?.email} userName={cloud.user?.name} />
+      </window.AdminView>
+    );
   else
     body = <window.DashboardView data={data} actions={actions} search={search}
             userEmail={cloud.user?.email} userName={cloud.user?.name} />;
@@ -188,26 +199,12 @@ function Workspace({ cloud, installPrompt, onInstall }) {
   return (
     <div className="app">
       <CloudBadge cloud={cloud} installPrompt={installPrompt} onInstall={onInstall} />
-      <window.TopBar search={search} onSearchChange={setSearch} theme={theme} onToggleTheme={toggleTheme} />
+      <window.TopBar search={search} onSearchChange={setSearch} theme={theme} onToggleTheme={toggleTheme}
+        onSettings={() => window.go("/admin")} />
       {body}
 
-      <footer className="data-tools">
-        <span>
-          {cloud.mode === "signedIn"
-            ? "הנתונים מסונכרנים בענן (Firestore)"
-            : "הנתונים נשמרים במכשיר זה (localStorage)"}
-        </span>
-        <span className="spacer" />
-        <button className="btn btn-sm" onClick={onExport}>{window.Icon.download}<span>ייצוא JSON</span></button>
-        <button className="btn btn-sm" onClick={onImport}>{window.Icon.upload}<span>ייבוא JSON</span></button>
-        {cloud.mode === "local" && (
-          <button className="btn btn-sm" onClick={() => {
-            if (confirm("לאפס לנתוני הדוגמה? כל השינויים יימחקו.")) actions.resetSeed();
-          }}>{window.Icon.refresh}<span>איפוס לדוגמה</span></button>
-        )}
-        <input ref={fileInputRef} type="file" accept="application/json,.json"
-          style={{ display: "none" }} onChange={onFile} />
-      </footer>
+      <input ref={fileInputRef} type="file" accept="application/json,.json"
+        style={{ display: "none" }} onChange={onFile} />
 
       <window.TweaksPanel>
         <window.TweakSection label="מראה" />
